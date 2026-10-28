@@ -5,7 +5,10 @@ Fill in a row only after checking the selected release’s official docs/config 
 | Component | Repository | Exact tag/commit | Environment | Endpoint/config source | Checked by | Status |
 |---|---|---|---|---|---|---|
 | Issuer — Inji Certify | https://github.com/inji/inji-certify | TBD | TBD | TBD | Manay | Not checked |
-| Wallet — Inji Web or Mobile | https://github.com/inji/inji-web or https://github.com/inji/inji-wallet | TBD | TBD | TBD | Anav + Manay | Choice pending |
+| Wallet — Inji Web or Mobile | https://github.com/inji/inji-web or https://github.com/inji/inji-wallet | TBD | TBD | TBD | Anav + Manay | First wallet: Inji Web.
+First smoke-test environment: MOSIP Collab, if team access is available.
+Fallback: Inji Mobile if the Web issuance flow is blocked.
+Reproducible deliverable: local Compose setup after the flow is proven. |
 | Wallet backend — Mimoto | https://github.com/inji/mimoto | TBD | TBD | TBD | Manay | Not checked |
 | Verifier — Inji Verify | https://github.com/inji/inji-verify | TBD | TBD | TBD | Dhyan + Manay | Not checked |
 
