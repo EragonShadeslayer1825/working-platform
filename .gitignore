@@ -1,7 +1,14 @@
 node_modules/
+<<<<<<< HEAD
 dist/
 .env
 data/*.json
 !data/.gitkeep
 *.log
 .DS_Store
+=======
+.env
+.env.*
+!.env.example
+dist/
+>>>>>>> origin/main
