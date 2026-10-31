@@ -46,18 +46,18 @@ The backend orchestration engine lives in `src/`.
 # Install all backend + frontend dependencies
 npm install
 
-# Run the automated test suite (uses mock stack, no Inji services needed)
+# Run the automated test suite (65 tests across unit, API, sanitization, evaluator)
 npm test
 
-# Start the backend server in development mode
-npm run dev
+# Start the backend server in development mode (port 4000)
+npm run dev:backend
 ```
 
 **Verify the backend is running:**
 
 ```bash
 curl http://localhost:4000/health
-# Expected: {"status":"HEALTHY","service":"inji-interop-playground-backend",...}
+# Expected: {"status":"HEALTHY","service":"inji-interop-playground-backend","version":"1.0.0",...}
 ```
 
 The default server port is **4000** (configurable via `PORT` in `.env`).
@@ -66,14 +66,15 @@ The default server port is **4000** (configurable via `PORT` in `.env`).
 
 | Script | Command | Purpose |
 |---|---|---|
-| Run tests (all) | `npm test` | Runs full test suite with tsx |
-| Unit tests only | `node --test tests/orchestrator.test.ts` | Original 5 orchestrator tests |
-| API integration tests | `node --test tests/integration/api.integration.test.ts` | HTTP endpoint integration |
-| Sanitization tests | `node --test tests/integration/sanitization.integration.test.ts` | Event redaction policy |
-| Evaluator tests | `node --test tests/integration/evaluator.integration.test.ts` | Verdict logic branches |
-| All integration | `node --test tests/integration/` | All integration tests |
-| Start dev server | `npm run dev` | Express server with hot reload |
-| Build TypeScript | `npm run build` | Compile to dist/ |
+| Run tests (all 65) | `npm test` | Runs orchestrator + 3 integration suites with tsx |
+| Unit tests only | `npm run test:unit` | Original 5 orchestrator domain tests |
+| All integration tests | `npm run test:integration` | API HTTP + sanitization + evaluator suites |
+| API integration tests | `node --import tsx/esm --test tests/integration/api.integration.test.ts` | HTTP endpoint integration (19 tests) |
+| Sanitization tests | `node --import tsx/esm --test tests/integration/sanitization.integration.test.ts` | Event redaction policy (26 tests) |
+| Evaluator tests | `node --import tsx/esm --test tests/integration/evaluator.integration.test.ts` | Verdict logic branches (15 tests) |
+| Start dev backend | `npm run dev:backend` | Express server with hot reload (`tsx watch`) |
+| Build TypeScript backend | `npm run build:backend` | Compiles to `dist/` via `tsconfig.server.json` |
+| Start production backend | `npm run start:backend` | Runs compiled `dist/index.js` |
 
 ---
 

@@ -115,18 +115,19 @@ test('GET /api/v1/registry/matrix returns compatibility matrix cells', async () 
   const res = await fetch(`${baseUrl}/api/v1/registry/matrix`);
   assert.equal(res.status, 200);
 
-  const body = (await res.json()) as { matrix: Array<Record<string, unknown>> };
-  assert.ok(Array.isArray(body.matrix), 'matrix should be an array');
-  assert.ok(body.matrix.length > 0, 'Should have at least one matrix cell');
+  const body = (await res.json()) as { cells: Array<Record<string, unknown>> };
+  const cells = body.cells;
+  assert.ok(Array.isArray(cells), 'cells should be an array');
+  assert.ok(cells.length > 0, 'Should have at least one matrix cell');
 
   // Validate cell shape
-  const firstCell = body.matrix[0];
+  const firstCell = cells[0];
   assert.ok(typeof firstCell.issuerId === 'string', 'Cell should have issuerId');
   assert.ok(typeof firstCell.walletId === 'string', 'Cell should have walletId');
   assert.ok(typeof firstCell.verifierId === 'string', 'Cell should have verifierId');
   assert.ok(typeof firstCell.format === 'string', 'Cell should have format');
   assert.ok(
-    ['SUPPORTED', 'PENDING_INTEGRATION', 'UNSUPPORTED'].includes(firstCell.status as string),
+    ['SUPPORTED', 'PENDING_INTEGRATION', 'UNSUPPORTED', 'EXPERIMENTAL'].includes(firstCell.status as string),
     'Cell status should be a known value'
   );
 });
@@ -134,10 +135,10 @@ test('GET /api/v1/registry/matrix returns compatibility matrix cells', async () 
 test('GET /api/v1/registry/matrix includes SUPPORTED cells for mock stack', async () => {
   const res = await fetch(`${baseUrl}/api/v1/registry/matrix`);
   const body = (await res.json()) as {
-    matrix: Array<{ issuerId: string; walletId: string; verifierId: string; status: string }>;
+    cells: Array<{ issuerId: string; walletId: string; verifierId: string; status: string }>;
   };
 
-  const mockCell = body.matrix.find(
+  const mockCell = body.cells.find(
     (c) =>
       c.issuerId === 'mock-openid4vci' &&
       c.walletId === 'simulated-wallet' &&

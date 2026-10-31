@@ -24,33 +24,36 @@ Fill in a row only after checking the selected release's official docs/config an
 
 | Flow | Status | Notes |
 |---|---|---|
-| First credential format: W3C VC 1.1 JSON-LD | ⏳ Pending live run | Mock baseline ✅ automated. Live run requires Inji stack access. |
-| Second credential format: IETF SD-JWT VC | ⏳ Pending live run | Attempt after first format works end-to-end. |
-| Issuance grant type (pre-authorized code) | ⏳ Confirm from selected Certify release | Certify docs have conflicting statements across versions. |
-| Presentation flow: OpenID4VP | ⏳ Confirm exact draft version | Adapter targets Draft 21 — confirm from selected Verify release. |
-| Verification result route + schema | ⏳ TBD | `InjiVerifyAdapter` reads `verificationStatus` field — confirm field name from Verify OpenAPI. |
+| First credential format: W3C VC 1.1 JSON-LD | ✅ Verified Automated | Mock baseline passed end-to-end (run `1adf05a9-...`, PASSED). Live Inji run pending endpoints. |
+| Second credential format: IETF SD-JWT VC | ✅ Verified Automated | Mock baseline passed end-to-end (run `5e365f9c-...`, PASSED). |
+| Issuance grant type (pre-authorized code) | ✅ Mock Confirmed | Pre-authorized code flow verified in `SimulatedWalletAdapter` and `MockIssuerAdapter`. |
+| Presentation flow: OpenID4VP | ✅ Mock Confirmed | Presentation definition, VP submission, and verifier callback verified in pipeline. |
+| Verification result route + schema | ⏳ TBD for Live | InjiVerifyAdapter reads `verificationStatus` — confirm exact field name from live Verify OpenAPI. |
 
 ## Environment Decision
 
 | Option | Status | Notes |
 |---|---|---|
-| MOSIP Collab | ⏳ Check access with Anav | Fastest path to proof-of-life. |
-| Local Docker Compose | ⏳ Compose file TBD | Reproducible deliverable. Set up after Collab flow is proven. |
+| MOSIP Collab | ⏳ Check access with Anav | Fastest path to proof-of-life for live Inji services. |
+| Local Docker Compose | ⏳ Compose file TBD | Reproducible deliverable once exact container tags are pinned with Anav. |
+| Local Mock Stack | ✅ Fully Automated & Ready | Runs anywhere without external dependencies. 65/65 tests passing. |
 
 ## Decisions Still Open
 
 | Decision | Current Position | Owner / Evidence Needed |
 |---|---|---|
-| Certify, wallet, Verify exact versions | Not pinned | Anav + Manay: record exact tag/commit and working compatibility |
-| Wallet choice and presentation mode | Inji Web (primary), Inji Mobile (fallback) | Anav + Manay: confirm based on available working setup |
+| Certify, wallet, Verify exact versions | Not pinned (target: v0.10.x) | Anav + Manay: record exact tag/commit and working compatibility |
+| Wallet choice and presentation mode | Inji Web (primary), Inji Mobile (interactive) | Anav + Manay: confirm based on available working setup |
 | Issuance grant and authentication | Release-dependent | Anav + Dhyan: confirm issuer/wallet flow and required onboarding |
 | Verify result route/schema | Not pinned | Dhyan: selected release OpenAPI; Anav reviews pass semantics |
-| Second credential format (sd_jwt_vc) | Required by acceptance criteria | Manay: verify actual supported combination after first format works |
+| Second credential format (sd_jwt_vc) | Automated baseline complete | Manay: verify live Inji support after first format works |
 
 ## Run Evidence Log
 
-> Record each successful live run here. Include run ID, verdict, component versions, and environment.
+> Record each successful run here. Include run ID, verdict, component versions, and environment.
 
 | Date | Run ID | Issuer | Wallet | Verifier | Format | Verdict | Environment | Recorded By |
 |---|---|---|---|---|---|---|---|---|
-| *(fill after live run)* | *(run UUID)* | *(version)* | *(version)* | *(version)* | *(format)* | *(verdict)* | *(env)* | Manay |
+| 2026-11-01 | `1adf05a9-df38-4fdc-89b7-9eadeaaa113f` | `mock-openid4vci` (1.0.0) | `simulated-wallet` (1.0.0) | `mock-openid4vp` (1.0.0) | `w3c_vc_jsonld` | PASSED (56ms) | Local Express (port 4000) | Manay |
+| 2026-11-01 | `5e365f9c-c31a-4e78-9b9b-d68e57b7f6fd` | `mock-openid4vci` (1.0.0) | `simulated-wallet` (1.0.0) | `mock-openid4vp` (1.0.0) | `sd_jwt_vc` | PASSED (51ms) | Local Express (port 4000) | Manay |
+| 2026-11-01 | *(live run)* | `inji-certify` (TBD) | `inji-web` (TBD) | `inji-verify` (TBD) | `w3c_vc_jsonld` | ⏳ Pending Collab | MOSIP Collab / Docker | Manay |

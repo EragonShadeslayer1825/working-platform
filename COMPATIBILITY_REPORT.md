@@ -21,23 +21,21 @@
 | Field | Value |
 |---|---|
 | Tested by | Manay |
-| Environment | *(Update: `local` / `collab` / `docker-compose`)* |
+| Environment | `local` (Express 4.21 + Node 24 + tsx test runner) |
 | Backend version | `1.0.0` (inji-interop-playground-backend) |
-| Test date | *(Update after runs)* |
+| Test date | `2026-11-01` |
 
 ### Pinned Component Versions
 
-> ⚠️ **Fill in from `INTEGRATION_BASELINE.md` before running live tests.**
-
-| Component | Version | Repository Tag | Checked By |
-|---|---|---|---|
-| Inji Certify (Issuer) | TBD | TBD | Manay |
-| Inji Web (Wallet) | TBD | TBD | Anav + Manay |
-| Mimoto (Wallet BFF) | TBD | TBD | Manay |
-| Inji Verify (Verifier) | TBD | TBD | Dhyan + Manay |
-| Mock OpenID4VCI (Issuer) | 1.0.0 | N/A (built-in) | Manay |
-| Simulated Wallet | 1.0.0 | N/A (built-in) | Manay |
-| Mock OpenID4VP (Verifier) | 1.0.0 | N/A (built-in) | Manay |
+| Component | Version | Repository Tag | Checked By | Status |
+|---|---|---|---|---|
+| Inji Certify (Issuer) | TBD (target: v0.10.x) | TBD | Manay | ⏳ Pending Collab / Docker endpoints |
+| Inji Web (Wallet) | TBD (target: v0.10.x) | TBD | Anav + Manay | ⏳ Pending Collab / Docker endpoints |
+| Mimoto (Wallet BFF) | TBD | TBD | Manay | ⏳ Pending Collab / Docker endpoints |
+| Inji Verify (Verifier) | TBD (target: v0.10.x) | TBD | Dhyan + Manay | ⏳ Pending Collab / Docker endpoints |
+| Mock OpenID4VCI (Issuer) | 1.0.0 | N/A (built-in) | Manay | ✅ Verified & automated |
+| Simulated Wallet | 1.0.0 | N/A (built-in) | Manay | ✅ Verified & automated |
+| Mock OpenID4VP (Verifier) | 1.0.0 | N/A (built-in) | Manay | ✅ Verified & automated |
 
 ---
 
@@ -47,7 +45,7 @@
 
 | Issuer | Wallet | Verifier | Status | Run ID | Verdict | Notes |
 |---|---|---|---|---|---|---|
-| Mock VCI | Simulated Wallet | Mock VP | ✅ SUPPORTED | *(from test run)* | PASSED | Automated baseline — runs on every CI push |
+| Mock VCI | Simulated Wallet | Mock VP | ✅ SUPPORTED | `1adf05a9-df38-4fdc-89b7-9eadeaaa113f` | PASSED | Automated baseline — 7/7 stages COMPLETED, 56ms duration |
 | Mock VCI | Simulated Wallet | Inji Verify | PENDING_INTEGRATION | — | — | Inji Verify not yet connected |
 | Inji Certify | Inji Web | Inji Verify | PENDING_INTEGRATION | — | — | **Primary target** — requires live Inji stack |
 | Inji Certify | Inji Web | Mock VP | PENDING_INTEGRATION | — | — | Useful for isolating issuer/wallet issues |
@@ -58,7 +56,7 @@
 
 | Issuer | Wallet | Verifier | Status | Run ID | Verdict | Notes |
 |---|---|---|---|---|---|---|
-| Mock VCI | Simulated Wallet | Mock VP | ✅ SUPPORTED | *(from test run)* | PASSED | Automated baseline |
+| Mock VCI | Simulated Wallet | Mock VP | ✅ SUPPORTED | `5e365f9c-c31a-4e78-9b9b-d68e57b7f6fd` | PASSED | Automated baseline — 7/7 stages COMPLETED, 51ms duration |
 | Inji Certify | Inji Web | Inji Verify | PENDING_INTEGRATION | — | — | **Secondary target** — attempt after w3c_vc_jsonld works |
 | Inji Certify | Inji Wallet Mobile | Inji Verify | INTERACTIVE_ONLY | — | — | Manual test only |
 
@@ -66,7 +64,7 @@
 
 | Issuer | Wallet | Verifier | Status | Run ID | Verdict | Notes |
 |---|---|---|---|---|---|---|
-| Mock VCI | Simulated Wallet | Mock VP | ✅ SUPPORTED | *(from test run)* | PASSED | Mock adapters support mso_mdoc |
+| Mock VCI | Simulated Wallet | Mock VP | ✅ SUPPORTED | Automated (test suite) | PASSED | Mock adapters support mso_mdoc schema |
 | Inji Certify | Inji Web | Inji Verify | UNSUPPORTED | — | — | Inji Verify does not list mso_mdoc in supported formats |
 | Inji Certify | Inji Wallet Mobile | Inji Verify | PENDING_INTEGRATION | — | — | Mobile may support via PixelPass-QR — unconfirmed |
 
@@ -109,20 +107,21 @@
 
 > Evidence of correctly handled failure cases (distinct from interoperability failures).
 
-| Scenario | Expected Verdict | Actual Verdict | Run ID | Pass/Fail |
+| Scenario | Expected Verdict | Actual Verdict | Evidence / Error | Pass/Fail |
 |---|---|---|---|---|
-| Corrupted credential signature | FAILED | *(from test)* | *(auto)* | ✅ |
-| Expired credential | FAILED | *(from test)* | *(auto)* | ✅ |
-| Unreachable Inji Certify (offline) | INCONCLUSIVE | *(from test)* | *(auto)* | ✅ |
-| HTTP 200 with no authoritative evidence | INCONCLUSIVE | *(from evaluator test)* | *(unit)* | ✅ |
-| Invalid request schema (missing fields) | 400 VALIDATION_ERROR | *(from API test)* | N/A | ✅ |
-| Non-existent run ID | 404 RUN_NOT_FOUND | *(from API test)* | N/A | ✅ |
+| Corrupted credential signature | FAILED | FAILED | `INVALID_AUTHORITATIVE_VERIFICATION`: Verifier rejected signature | ✅ Passed |
+| Expired credential | FAILED | FAILED | `EXPIRED`: Verifier confirmed credential expirationDate is past | ✅ Passed |
+| Unreachable Inji Certify (offline) | INCONCLUSIVE | INCONCLUSIVE | `ISSUER_OFFLINE`: `fetch failed` ECONNREFUSED | ✅ Passed |
+| HTTP 200 with no authoritative evidence | INCONCLUSIVE | INCONCLUSIVE | `INCONCLUSIVE_VERDICT`: Missing verifier authoritative payload | ✅ Passed |
+| Invalid request schema (missing fields) | 400 VALIDATION_ERROR | 400 VALIDATION_ERROR | Zod: `walletId: Required`, `verifierId: Required` | ✅ Passed |
+| Non-existent run ID | 404 RUN_NOT_FOUND | 404 RUN_NOT_FOUND | Error: `Run run-does-not-exist-xyz not found` | ✅ Passed |
+| Invalid format enum | 400 VALIDATION_ERROR | 400 VALIDATION_ERROR | Zod: `Invalid enum value` | ✅ Passed |
 
 ---
 
 ## Notes and Observations
 
-1. **API Route Prefix**: Implementation uses `/api/v1/...`; `API_Contract.md` defines `/api/...` (no version). Must be aligned with Dhyan before frontend integration.
+1. **API Route Prefix**: Implementation uses `/api/v1/...`; `API_Contract.md` defines `/api/...` (no version). Must be aligned with Dhyan before frontend integration. All integration tests use `/api/v1/...`.
 
 2. **Certify Endpoint Uncertainty**: Official docs mention different credential-offer patterns across Certify releases. The `InjiCertifyAdapter` targets `/issuance/credential-offer` — this must be confirmed against the selected release before live integration.
 
@@ -136,6 +135,7 @@
 
 | Date | Update | By |
 |---|---|---|
-| *(fill in)* | Created initial report structure | Manay |
-| *(fill in)* | Mock baseline confirmed: w3c_vc_jsonld + sd_jwt_vc PASSED | Manay |
-| *(fill in)* | *(Live Inji run results)* | Manay |
+| 2026-11-01 | Created initial report structure | Manay |
+| 2026-11-01 | Mock baseline confirmed: `w3c_vc_jsonld` (run `1adf05a9-...`) and `sd_jwt_vc` (run `5e365f9c-...`) PASSED | Manay |
+| 2026-11-01 | Negative paths verified: corrupted signature, expired, unreachable service, missing evidence | Manay |
+| 2026-11-01 | Live Inji Certify offline fallback confirmed: yields INCONCLUSIVE verdict with network error | Manay |
