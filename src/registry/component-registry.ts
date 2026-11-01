@@ -181,14 +181,23 @@ export class ComponentRegistry {
             const verifierSupports = verifier.supportedFormats.includes(format);
 
             if (issuerSupports && walletSupports && verifierSupports) {
-              if (issuer.isMock || wallet.isMock || verifier.isMock) {
+              if (wallet.id === 'inji-wallet-mobile') {
+                cells.push({
+                  issuerId: issuer.id,
+                  walletId: wallet.id,
+                  verifierId: verifier.id,
+                  format,
+                  status: 'EXPERIMENTAL',
+                  notes: 'Requires interactive mode (mobile app QR scan / deep link handoff).',
+                });
+              } else if (issuer.isMock || wallet.isMock || verifier.isMock) {
                 cells.push({
                   issuerId: issuer.id,
                   walletId: wallet.id,
                   verifierId: verifier.id,
                   format,
                   status: 'SUPPORTED',
-                  notes: 'Fully supported and automated via reference/mock harness.',
+                  notes: 'Fully automated and verified via reference/mock harness.',
                 });
               } else {
                 cells.push({
@@ -197,7 +206,7 @@ export class ComponentRegistry {
                   verifierId: verifier.id,
                   format,
                   status: 'PENDING_INTEGRATION',
-                  notes: 'Live Inji stack integration baseline with Person 1 endpoints.',
+                  notes: 'Live Inji stack integration baseline pending confirmed release endpoints.',
                 });
               }
             } else {
