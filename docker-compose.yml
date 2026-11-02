@@ -1,0 +1,149 @@
+version: '3.8'
+
+# ==============================================================================
+# MOSIP Decode Hackathon — Problem 02: Inji Interoperability Playground
+# Local Docker Compose Environment
+# Architect: Arnav
+# ==============================================================================
+
+networks:
+  inji-net:
+    driver: bridge
+
+volumes:
+  certify-data:
+  mimoto-data:
+  verify-data:
+  postgres-data:
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL Datastore (Shared for Inji Services)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: inji-postgres
+    environment:
+      POSTGRES_USER: inji
+      POSTGRES_PASSWORD: inji_password
+      POSTGRES_DB: inji_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - inji-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inji -d inji_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 2. Inji Certify (Credential Issuer - OpenID4VCI)
+  # ----------------------------------------------------------------------------
+  inji-certify:
+    image: mosipid/inji-certify:0.10.0
+    container_name: inji-certify
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      SERVER_SERVLET_CONTEXT_PATH: /certify
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/inji_db
+      SPRING_DATASOURCE_USERNAME: inji
+      SPRING_DATASOURCE_PASSWORD: inji_password
+      MOSIP_ESIGNET_BASE_URL: http://mock-esignet:8088
+      SUPPORTED_CREDENTIAL_FORMATS: w3c_vc_jsonld,sd_jwt_vc
+    ports:
+      - "8080:8080"
+    networks:
+      - inji-net
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # 3. Mimoto (Inji Web Wallet BFF)
+  # ----------------------------------------------------------------------------
+  mimoto:
+    image: mosipid/mimoto:0.10.0
+    container_name: mimoto-wallet
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8081
+      SERVER_SERVLET_CONTEXT_PATH: /mimoto
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/inji_db
+      SPRING_DATASOURCE_USERNAME: inji
+      SPRING_DATASOURCE_PASSWORD: inji_password
+      INJI_CERTIFY_URL: http://inji-certify:8080/certify
+      INJI_VERIFY_URL: http://inji-verify:8082/verify
+    ports:
+      - "8081:8081"
+    networks:
+      - inji-net
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # 4. Inji Verify (Verifier Relying Party - OpenID4VP)
+  # ----------------------------------------------------------------------------
+  inji-verify:
+    image: mosipid/inji-verify:0.10.0
+    container_name: inji-verify
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8082
+      SERVER_SERVLET_CONTEXT_PATH: /verify
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/inji_db
+      SPRING_DATASOURCE_USERNAME: inji
+      SPRING_DATASOURCE_PASSWORD: inji_password
+      SUPPORTED_PROTOCOLS: OpenID4VP-draft21
+      SUPPORTED_FORMATS: w3c_vc_jsonld,sd_jwt_vc
+    ports:
+      - "8082:8082"
+    networks:
+      - inji-net
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # 5. Playground Backend Orchestrator (Express / TypeScript)
+  # ----------------------------------------------------------------------------
+  playground-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: inji-playground-backend
+    environment:
+      PORT: 4000
+      NODE_ENV: development
+      CORS_ORIGIN: http://localhost:3000,http://localhost:5173
+      INJI_CERTIFY_BASE_URL: http://inji-certify:8080/certify
+      MIMOTO_WALLET_BASE_URL: http://mimoto:8081/mimoto
+      INJI_VERIFY_BASE_URL: http://inji-verify:8082/verify
+      STAGE_TIMEOUT_MS: 30000
+      RUN_TIMEOUT_MS: 120000
+    ports:
+      - "4000:4000"
+    networks:
+      - inji-net
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # 6. Playground Frontend UI (Next.js / React)
+  # ----------------------------------------------------------------------------
+  playground-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: inji-playground-frontend
+    environment:
+      NEXT_PUBLIC_PLAYGROUND_API_URL: http://localhost:4000
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    networks:
+      - inji-net
+    restart: unless-stopped

@@ -5,6 +5,7 @@ import { requestLogger } from './middleware/request-logger.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { registryRouter } from './routes/registry.routes.js';
 import { createRunsRouter } from './routes/runs.routes.js';
+import { createPlaygroundRunsRouter } from './routes/playground-runs.routes.js';
 import { createCallbacksRouter } from './routes/verifier-callbacks.routes.js';
 import { FileTestRunRepository } from './storage/file-repo.js';
 import { TestOrchestrationEngine } from './engine/test-runner.js';
@@ -45,6 +46,7 @@ export function createApp(): Express {
   // API Routes
   app.use('/api/v1/registry', registryRouter);
   app.use('/api/v1/runs', createRunsRouter(engine, repository));
+  app.use('/api/runs', createPlaygroundRunsRouter(engine, repository));
   app.use('/api/v1/callbacks', createCallbacksRouter(repository));
 
   // Global Error Handler

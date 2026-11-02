@@ -70,7 +70,7 @@ flowchart TD
 
 | Team Member | Responsibility |
 |---|---|
-| Anav | Architecture, technical decisions, protocol design, acceptance criteria, and integration review |
+| Arnav | Architecture, technical decisions, protocol design, acceptance criteria, and integration review |
 | Dhyan | Backend orchestration engine, Express APIs, run lifecycle, service adapters, event capture, and verification results |
 | Namya | React/TypeScript frontend, selectors, run controls, protocol timeline, and result display |
 | Manay | Integration testing, setup documentation, compatibility matrix, and quality assurance |
@@ -156,16 +156,22 @@ curl -X POST http://localhost:4000/api/v1/runs \
 |---|---|---|
 | POST | `/api/v1/callbacks/verifier/:runId` | Receive verification completion results |
 
-### Planned Integration Contract
+### Playground UI & Orchestration Integration Contract (Approved & Implemented)
 
-The broader team integration plan also defines these proposed routes:
+The backend exposes a harmonized dual-route structure designed by Arnav (see `ARCHITECTURE_DECISION_RECORDS.md` - ADR-002 and `API_Contract.md`):
 
-- `POST /api/runs`
-- `GET /api/runs/:runId`
-- `POST /api/runs/:runId/issuance/start`
-- `POST /api/runs/:runId/presentation/start`
+1. **Frontend Contract (`/api/runs`)**:
+   - `POST /api/runs`: Launch test run from UI with normalized module and format selections.
+   - `GET /api/runs`: Retrieve historical test runs formatted for UI tables.
+   - `GET /api/runs/:runId`: Retrieve run details, verification report, and sanitized protocol timeline.
+   - `POST /api/runs/:runId/issuance/start`: Handoff confirmation for credential issuance.
+   - `POST /api/runs/:runId/presentation/start`: Handoff confirmation for presentation.
 
-These routes represent the planned integration contract and should be aligned with the implemented API before frontend integration.
+2. **Core Orchestration Contract (`/api/v1/runs`)**:
+   - `POST /api/v1/runs`: Headless automated pipeline execution.
+   - `GET /api/v1/runs/:id`: Domain test run status and stage state machines.
+   - `GET /api/v1/runs/:id/events`: Protocol inspector event log.
+   - `POST /api/v1/callbacks/verifier/:runId`: Webhook receiver for Inji Verify callback payloads.
 
 ### Event Data
 

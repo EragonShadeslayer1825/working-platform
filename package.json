@@ -9,9 +9,9 @@
     "dev:backend": "tsx watch src/index.ts",
     "build:backend": "tsc -p tsconfig.server.json",
     "start:backend": "node dist/index.js",
-    "test": "node --import tsx/esm --test tests/orchestrator.test.ts tests/integration/api.integration.test.ts tests/integration/sanitization.integration.test.ts tests/integration/evaluator.integration.test.ts",
+    "test": "node --import tsx/esm --test tests/orchestrator.test.ts tests/integration/api.integration.test.ts tests/integration/sanitization.integration.test.ts tests/integration/evaluator.integration.test.ts tests/integration/playground-api.integration.test.ts",
     "test:unit": "node --import tsx/esm --test tests/orchestrator.test.ts",
-    "test:integration": "node --import tsx/esm --test tests/integration/api.integration.test.ts tests/integration/sanitization.integration.test.ts tests/integration/evaluator.integration.test.ts"
+    "test:integration": "node --import tsx/esm --test tests/integration/api.integration.test.ts tests/integration/sanitization.integration.test.ts tests/integration/evaluator.integration.test.ts tests/integration/playground-api.integration.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

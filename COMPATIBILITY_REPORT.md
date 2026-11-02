@@ -29,10 +29,10 @@
 
 | Component | Version | Repository Tag | Checked By | Status |
 |---|---|---|---|---|
-| Inji Certify (Issuer) | TBD (target: v0.10.x) | TBD | Manay | ⏳ Pending Collab / Docker endpoints |
-| Inji Web (Wallet) | TBD (target: v0.10.x) | TBD | Anav + Manay | ⏳ Pending Collab / Docker endpoints |
-| Mimoto (Wallet BFF) | TBD | TBD | Manay | ⏳ Pending Collab / Docker endpoints |
-| Inji Verify (Verifier) | TBD (target: v0.10.x) | TBD | Dhyan + Manay | ⏳ Pending Collab / Docker endpoints |
+| Inji Certify (Issuer) | 0.10.0 | `mosipid/inji-certify:0.10.0` | Arnav + Manay | ✅ Pinned (ADR-006) |
+| Inji Web (Wallet) | 0.10.0 | `mosipid/inji-web:0.10.0` | Arnav + Manay | ✅ Pinned (ADR-006) |
+| Mimoto (Wallet BFF) | 0.10.0 | `mosipid/mimoto:0.10.0` | Arnav + Manay | ✅ Pinned (ADR-006) |
+| Inji Verify (Verifier) | 0.10.0 | `mosipid/inji-verify:0.10.0` | Arnav + Dhyan | ✅ Pinned (ADR-006) |
 | Mock OpenID4VCI (Issuer) | 1.0.0 | N/A (built-in) | Manay | ✅ Verified & automated |
 | Simulated Wallet | 1.0.0 | N/A (built-in) | Manay | ✅ Verified & automated |
 | Mock OpenID4VP (Verifier) | 1.0.0 | N/A (built-in) | Manay | ✅ Verified & automated |
@@ -121,13 +121,13 @@
 
 ## Notes and Observations
 
-1. **API Route Prefix**: Implementation uses `/api/v1/...`; `API_Contract.md` defines `/api/...` (no version). Must be aligned with Dhyan before frontend integration. All integration tests use `/api/v1/...`.
+1. **API Route Harmonization (QA-001 — RESOLVED)**: The backend orchestrator implements dual-route mounting: `/api/runs` serves the Next.js UI contract defined in `API_Contract.md`, while `/api/v1/runs` serves internal microservice test suites. Both work concurrently without conflict.
 
-2. **Certify Endpoint Uncertainty**: Official docs mention different credential-offer patterns across Certify releases. The `InjiCertifyAdapter` targets `/issuance/credential-offer` — this must be confirmed against the selected release before live integration.
+2. **Certify Endpoint Uncertainty**: Official docs mention different credential-offer patterns across Certify releases. In release 0.10.0, the `InjiCertifyAdapter` targets `/certify/issuance/credential-offer` (or mock-openid4vci).
 
-3. **Inji Verify Result Schema**: `InjiVerifyAdapter` interprets `verificationStatus` or `status` from the response. The exact field name from the selected Verify release must be confirmed from its OpenAPI contract.
+3. **Inji Verify Result Schema**: `InjiVerifyAdapter` evaluates `/v1/verify` for cryptographic status (`VALID`, `isSignatureValid`, `isExpired`, `isRevoked`).
 
-4. **CORS**: Backend allows `*` in development mode. Should be tightened to specific origins for production/demo environments.
+4. **CORS**: Backend allows `*` in development mode. Configured via `CORS_ORIGIN` in `.env` for production.
 
 ---
 
@@ -139,3 +139,4 @@
 | 2026-11-01 | Mock baseline confirmed: `w3c_vc_jsonld` (run `1adf05a9-...`) and `sd_jwt_vc` (run `5e365f9c-...`) PASSED | Manay |
 | 2026-11-01 | Negative paths verified: corrupted signature, expired, unreachable service, missing evidence | Manay |
 | 2026-11-01 | Live Inji Certify offline fallback confirmed: yields INCONCLUSIVE verdict with network error | Manay |
+| 2026-11-02 | QA-001 resolved via `/api/runs` dual routing; component versions pinned to 0.10.0; ADRs signed off | Arnav |

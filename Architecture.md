@@ -1,6 +1,6 @@
 # Architecture and integration boundaries
 
-Status: proposed working design. Anav owns this note and the cross-component decisions. Confirm a decision with the relevant owner before changing an interface other people depend on.
+Status: Approved Architecture & Technical Specification. Arnav owns this system architecture and cross-component decisions.
 
 ## Goal
 
@@ -24,43 +24,52 @@ Only the selected Verify release's final result can produce PASS, after expected
 
 ## Component ownership and handoff
 
-- **Anav — architecture:** owns this system design, requirements-to-acceptance mapping, technical decisions, protocol compatibility review, and cross-team interface approval. Does not replace Dhyan's backend or Namya's UI ownership.
+- **Arnav — architecture:** owns this system design, requirements-to-acceptance mapping, technical decisions, protocol compatibility review, and cross-team interface approval. Does not replace Dhyan's backend or Namya's UI ownership.
 - **Dhyan — backend:** owns Node/Express routes, run state, documented Inji adapters, event persistence, redaction, and authoritative Verify-result retrieval.
 - **Namya — frontend/demo:** owns React screens, selectors, run progress, QR/deep-link presentation, timeline and outcome display, and demo script.
-- **Manay — integration/quality:** owns environment setup notes, executing the real flows, negative-path evidence, compatibility matrix, and confirmed-gap report; pairs with Anav on integration findings.
+- **Manay — integration/quality:** owns environment setup notes, executing the real flows, negative-path evidence, compatibility matrix, and confirmed-gap report; pairs with Arnav on integration findings.
 
 Change the shared contract through a short discussion and pull request. The backend owns implementation; the architect approves the boundary; the frontend consumes the agreed response shape.
 
-## Playground API boundary (proposed)
+## Playground API boundary (Approved Architecture)
 
-These are internal playground routes, not Inji endpoints:
+The backend provides dual API routing to ensure full interoperability between frontend and engine:
 
-- POST /api/runs — create a run and return runId plus initial state.
-- GET /api/runs/:runId — return run metadata, state, sanitized events, and result when available.
-- POST /api/runs/:runId/issuance/start — initiate the selected documented issuance flow.
-- POST /api/runs/:runId/presentation/start — initiate the selected documented verifier flow and return its wallet request data.
+1. **Frontend Contract (`/api/runs`):**
+   - `POST /api/runs` — create a run and return `runId` plus initial state, mapped to UI `RunRecord`.
+   - `GET /api/runs` — retrieve historical runs in `RunRecord` format.
+   - `GET /api/runs/:runId` — return run metadata, state, sanitized events, and verification result when available.
+   - `POST /api/runs/:runId/issuance/start` — initiate/confirm issuance step.
+   - `POST /api/runs/:runId/presentation/start` — initiate/confirm presentation step.
 
-Use one shared event shape: runId, eventId, timestamp, actor, protocol step, direction, endpoint/operation, redacted request/response, HTTP status, and error detail. Define the exact JSON fields with Dhyan before Namya builds against them. Keep transaction IDs for correlation; never log access tokens, OTPs, private keys, or personal credential data.
+2. **Core Orchestration Contract (`/api/v1/runs`):**
+   - `POST /api/v1/runs` — internal headless test execution pipeline.
+   - `GET /api/v1/runs/:id` — internal domain test run details.
+   - `GET /api/v1/runs/:id/events` — raw sanitized event history.
+   - `POST /api/v1/callbacks/verifier/:runId` — webhook receiver for verifier callbacks.
+
+Shared event shape: `runId`, `eventId`, `timestamp`, `actor`, `protocolStep`, `direction`, `operation`, `sanitized request/response`, `httpStatus`, and `error detail`. Sensitive tokens, OTPs, private keys, and personal credential data are strictly redacted by policy.
 
 ## Integration constraints
 
-- Protocol intent: OpenID4VCI for issuance and OpenID4VP for presentation. Pin exact module releases and their supported spec versions; do not assume drafts or formats match across releases.
-- First format target: W3C VC 1.1 JSON-LD, pending compatibility confirmation across the selected issuer, wallet, and verifier. Add another format after the first real flow works.
-- Environment: use Collab for a fast proof-of-life if access is ready; keep a documented local Compose path as the reproducible deliverable. Record which environment each run used.
-- Do not hardcode guessed external endpoints, credentials, auth parameters, request bodies, or verification-result paths. Dhyan and Anav record each from the selected release's official documentation/configuration before implementation.
-- Certify documentation has differing statements about credential-offer availability. Confirm the selected release and working issuer flow before relying on pre-authorized offers.
-- Verify's SDK guide documents a service base at /v1/verify and distinguishes a received transaction ID from processed verification. Confirm exact route and schema from the selected version's OpenAPI contract.
+- Protocol intent: OpenID4VCI for issuance and OpenID4VP for presentation.
+- Primary format target: W3C VC 1.1 JSON-LD (`w3c_vc_jsonld`).
+- Secondary format target: IETF SD-JWT VC (`sd_jwt_vc`).
+- Environment: Local Docker Compose deliverable provided via `docker-compose.yml`; MOSIP Collab as target remote environment.
+- Verifier authoritative result route: `/v1/verify` checking cryptographic validation fields.
 
-## Decisions to close before adapters
+## Closed Architecture Decisions (Signed Off by Arnav)
 
-| Decision | Current position | Owner / evidence needed |
+See `ARCHITECTURE_DECISION_RECORDS.md` for full context and specifications.
+
+| Decision | Status & Resolved Position | Approved By / Implementation |
 |---|---|---|
-| Certify, wallet, Verify versions | Not pinned | Anav + Manay: record exact tag/commit and working compatibility |
-| Wallet choice and presentation mode | Inji Mobile or Inji Web; QR/deep link to confirm | Anav + Manay: choose based on available working setup |
-| Issuance grant and authentication | Release-dependent; do not assume | Anav + Dhyan: confirm issuer/wallet flow and required onboarding |
-| Verify result route/schema | Not pinned | Dhyan: selected release OpenAPI; Anav reviews pass semantics |
-| Run persistence and event transport | Minimal implementation TBD | Dhyan proposes; Namya confirms UI needs; Anav resolves boundary |
-| Second credential format | Required by project acceptance; choice TBD after baseline | Manay verifies an actual supported combination |
+| Certify, wallet, Verify versions | **CLOSED**: Pinned to MOSIP Inji release `0.10.0` (tags `mosipid/inji-certify:0.10.0`, `mosipid/mimoto:0.10.0`, `mosipid/inji-verify:0.10.0`); Mock stack `1.0.0` | Arnav (ADR-006) |
+| Wallet choice and presentation mode | **CLOSED**: Automated headless runs use `simulated-wallet` / `inji-web` via Mimoto REST; Interactive mobile runs use `inji-wallet-mobile` with QR Code / Deep Link | Arnav (ADR-004) |
+| Issuance grant and authentication | **CLOSED**: Pre-authorized code flow (`urn:ietf:params:oauth:grant-type:pre-authorized_code`) for zero-touch automated tests; Auth Code with PKCE for interactive login | Arnav (ADR-004) |
+| Verify result route/schema | **CLOSED**: Standardized on Inji Verify `/v1/verify`. PASS requires all-green cryptographic validation: valid signature, untampered claims, unexpired, trusted DID | Arnav (ADR-001) |
+| Run persistence and event transport | **CLOSED**: Dual API routing (`/api/runs` and `/api/v1/runs`) with normalized `RunRecord` and strict recursive `EventSanitizer` (depth 6) | Arnav (ADR-002, ADR-005) |
+| Second credential format | **CLOSED**: Format 1 = W3C VC 1.1 JSON-LD; Format 2 = IETF SD-JWT VC. ISO mDL (`mso_mdoc`) confirmed and documented as unsupported blocker | Arnav (ADR-003) |
 
 ## Acceptance checks for the architecture
 

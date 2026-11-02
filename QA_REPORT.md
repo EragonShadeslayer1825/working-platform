@@ -164,12 +164,12 @@ for p in patterns:
 
 | ID | Issue | Severity | Status | Owner |
 |---|---|---|---|---|
-| QA-001 | API route prefix mismatch (`/api/v1/` vs `/api/`) between implementation and `API_Contract.md` | Medium | **Open** | Dhyan/Anav |
-| QA-002 | Inji Certify exact endpoint path not confirmed for selected release | High | **Open** | Manay + Dhyan |
-| QA-003 | Inji Verify result schema field (`verificationStatus` vs `status`) not confirmed | High | **Open** | Dhyan |
-| QA-004 | `mso_mdoc` has no live Inji adapter confirmed | Low | **Documented** | Manay |
-| QA-005 | CORS set to `*` in production — should be restricted | Low | **Open** | Dhyan |
-| QA-006 | `InjiWebAdapter.isInteractive` is `false` but mobile wallet requires interactive QR | Medium | **Documented** | Anav |
+| QA-001 | API route prefix mismatch (`/api/v1/` vs `/api/`) between implementation and `API_Contract.md` | Medium | **Resolved** | Arnav / Dhyan |
+| QA-002 | Inji Certify exact endpoint path not confirmed for selected release | High | **Pinned (v0.10.0)** | Manay + Dhyan |
+| QA-003 | Inji Verify result schema field (`verificationStatus` vs `status`) not confirmed | High | **Resolved (ADR-001)** | Dhyan / Arnav |
+| QA-004 | `mso_mdoc` has no live Inji adapter confirmed | Low | **Documented Blocker** | Manay |
+| QA-005 | CORS set to `*` in production — should be restricted | Low | **Configured via .env** | Dhyan |
+| QA-006 | `InjiWebAdapter.isInteractive` is `false` but mobile wallet requires interactive QR | Medium | **Resolved (ADR-004)** | Arnav |
 | QA-007 | `STAGE_TIMEOUT_MS` not enforced in pipeline — pipeline does not abort on timeout | Medium | **Open** | Dhyan |
 
 ---
@@ -197,3 +197,4 @@ From `README.md` section 10:
 | 2026-11-01 | Negative paths verified: corrupted signature, expired credential, unreachable issuer, missing evidence | Manay |
 | 2026-11-01 | Sanitization audit verified: 26 policy tests pass, live REST timeline confirmed free of tokens/secrets | Manay |
 | 2026-11-01 | Second format (`sd_jwt_vc`) verified end-to-end; `mso_mdoc` blocker documented | Manay |
+| 2026-11-02 | QA-001 resolved (dual `/api/runs` and `/api/v1/runs` routes mounted and tested); QA-006 resolved via ADR-004 | Arnav |
