@@ -66,12 +66,15 @@ The default server port is **4000** (configurable via `PORT` in `.env`).
 
 | Script | Command | Purpose |
 |---|---|---|
-| Run tests (all 65) | `npm test` | Runs orchestrator + 3 integration suites with tsx |
-| Unit tests only | `npm run test:unit` | Original 5 orchestrator domain tests |
-| All integration tests | `npm run test:integration` | API HTTP + sanitization + evaluator suites |
+| Run tests (all 83) | `npm test` | Runs orchestrator + wallet data flow + 5 integration suites |
+| Unit tests only | `npm run test:unit` | Orchestrator domain tests + exact wallet data flow |
+| All integration tests | `npm run test:integration` | API HTTP + sanitization + evaluator + playground API + callbacks suites |
+| Wallet data flow tests | `node --import tsx/esm --test tests/wallet-data-flow.test.ts` | Exact credential preservation in wallet (3 tests) |
+| Webhook callback tests | `node --import tsx/esm --test tests/integration/callbacks.integration.test.ts` | Callback security, schema, and replay prevention (5 tests) |
 | API integration tests | `node --import tsx/esm --test tests/integration/api.integration.test.ts` | HTTP endpoint integration (19 tests) |
-| Sanitization tests | `node --import tsx/esm --test tests/integration/sanitization.integration.test.ts` | Event redaction policy (26 tests) |
-| Evaluator tests | `node --import tsx/esm --test tests/integration/evaluator.integration.test.ts` | Verdict logic branches (15 tests) |
+| Sanitization tests | `node --import tsx/esm --test tests/integration/sanitization.integration.test.ts` | Event redaction policy (28 tests) |
+| Evaluator tests | `node --import tsx/esm --test tests/integration/evaluator.integration.test.ts` | Verdict logic branches (18 tests) |
+| Playground API tests | `node --import tsx/esm --test tests/integration/playground-api.integration.test.ts` | Next.js UI dual-route contract (5 tests) |
 | Start dev backend | `npm run dev:backend` | Express server with hot reload (`tsx watch`) |
 | Build TypeScript backend | `npm run build:backend` | Compiles to `dist/` via `tsconfig.server.json` |
 | Start production backend | `npm run start:backend` | Runs compiled `dist/index.js` |
@@ -80,14 +83,14 @@ The default server port is **4000** (configurable via `PORT` in `.env`).
 
 ## 3. Frontend Setup (Next.js Playground UI)
 
-The Playground UI is a Next.js application.
+The Playground UI is a Next.js application at the root directory.
 
 ```bash
-# Install frontend dependencies using pnpm
-pnpm install
+# Install dependencies (already installed via root npm install)
+npm ci
 
 # Start the Next.js development server
-pnpm run dev
+npm run dev
 ```
 
 The frontend starts on **http://localhost:3000** (or 3001 if 3000 is in use).

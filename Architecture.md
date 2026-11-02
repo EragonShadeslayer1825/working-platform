@@ -1,87 +1,96 @@
-# Architecture and integration boundaries
+# Architecture and Integration Boundaries
 
-Status: Approved Architecture & Technical Specification. Arnav owns this system architecture and cross-component decisions.
+> **Status**: Approved Architecture & Technical Specification  
+> **Architect**: Arnav  
+> **Version**: 1.1 (Repaired & Audited)  
 
-## Goal
+## 1. Goal
 
-Run real issuance → wallet holding → presentation → verification with Inji components, and show actual exchanges, errors, and the verifier's authoritative outcome. HTTP success, a redirect, or VP receipt is not a verification pass.
+Run real issuance → wallet holding → presentation → verification across Inji components, capturing actual protocol exchanges, errors, and the verifier's authoritative cryptographic outcome.
 
-## System shape
+**Foundational Rule**: HTTP transport success, wallet redirects, and presentation receipts do **not** independently establish a verification pass. Authoritative cryptographic validation evidence is required.
 
-`React + TypeScript playground UI` → `Node/Express playground engine` → documented Inji service interfaces.
+---
 
-The human uses the selected wallet and consents to credential sharing. Mimoto is included when required by the selected wallet setup. Inji Certify is the issuer; Inji Verify is the relying-party verifier. The engine coordinates the playground run and captures redacted evidence; it must not impersonate the wallet or invent responses.
+## 2. System Shape
 
-## End-to-end sequence
+`Next.js 16 (React 19) Playground UI` → `Node/Express Playground Orchestration Engine (:4000)` → Documented Inji Service Interfaces.
 
-1. The UI asks the engine to create a run with module IDs, exact module versions, and a credential format.
-2. The engine records the run and starts the documented issuer flow. The user completes any required authentication and wallet consent. The wallet stores the credential.
-3. The UI asks the engine to start a verifier request. Inji Verify creates the documented OpenID4VP request; the wallet receives it by the selected QR or deep-link flow and the user chooses what to share.
-4. The verifier receives the VP. The engine records the submission/transaction identifier as pending, then fetches or receives the authoritative verification result using the selected Verify release's documented contract.
-5. The UI shows the final outcome, selected modules/versions, credential format, sanitized exchange timeline, and diagnostics.
+The human uses the selected wallet and consents to credential sharing. Mimoto is included when required by the selected Inji Web setup. Inji Certify is the issuer; Inji Verify is the relying-party verifier. The engine coordinates the playground run, preserves exact credential payloads across stages, captures redacted evidence, and evaluates authoritative outcomes.
 
-Only the selected Verify release's final result can produce PASS, after expected credential/type checks. Record INVALID, EXPIRED, PENDING, and technical ERROR separately.
+---
 
-## Component ownership and handoff
+## 3. End-to-End Sequence & Exact Credential Data Flow
 
-- **Arnav — architecture:** owns this system design, requirements-to-acceptance mapping, technical decisions, protocol compatibility review, and cross-team interface approval. Does not replace Dhyan's backend or Namya's UI ownership.
-- **Dhyan — backend:** owns Node/Express routes, run state, documented Inji adapters, event persistence, redaction, and authoritative Verify-result retrieval.
-- **Namya — frontend/demo:** owns React screens, selectors, run progress, QR/deep-link presentation, timeline and outcome display, and demo script.
-- **Manay — integration/quality:** owns environment setup notes, executing the real flows, negative-path evidence, compatibility matrix, and confirmed-gap report; pairs with Arnav on integration findings.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Tester / UI
+    participant Orch as Playground Orchestrator
+    participant Iss as Inji Certify / Mock VCI
+    participant Wal as Inji Web / Simulated Wallet
+    participant Ver as Inji Verify / Mock VP
 
-Change the shared contract through a short discussion and pull request. The backend owns implementation; the architect approves the boundary; the frontend consumes the agreed response shape.
+    User->>Orch: POST /api/runs (Create Run)
+    Orch->>Iss: OpenID4VCI Credential Offer Request
+    Iss-->>Orch: Credential Offer URI & Pre-Authorized Code
+    Orch->>Iss: Token & Credential Request (DPoP / PoP)
+    Iss-->>Orch: Issued Credential (W3C JSON-LD or SD-JWT)
+    Note over Orch,Wal: Stage 3: Exact Credential Preservation
+    Orch->>Wal: Store EXACT Issued Credential in Wallet Store
+    Wal-->>Orch: Confirmation & Stored Credential ID
+    Orch->>Ver: OpenID4VP Presentation Request
+    Ver-->>Orch: Presentation Definition & Nonce
+    Note over Orch,Wal: Stage 5: Retrieve Exact Credential for Presentation
+    Orch->>Wal: Construct VP from EXACT Stored Credential (Apply Tampering if Configured)
+    Wal-->>Orch: Verifiable Presentation Submission Token (VP Token)
+    Orch->>Ver: Submit Presentation Token (or await Callback)
+    Ver-->>Orch: Authoritative Verification Result Breakdown
+    Note over Orch: Stage 7: Strict Authoritative Evaluation
+    Orch->>Orch: Evaluate (overallStatus, signature, expiry, revocation, issuer trust)
+    Orch-->>User: Evidence-Backed Test Report & Sanitized Timeline
+```
 
-## Playground API boundary (Approved Architecture)
+### Detailed Stage Lifecycle
 
-The backend provides dual API routing to ensure full interoperability between frontend and engine:
+1. **Discovery & Offer**: The engine queries issuer metadata and requests an OpenID4VCI credential offer for the specified credential format.
+2. **Credential Delivery**: Issuer issues the signed credential token (e.g. W3C JSON-LD with Ed25519Signature2020 proof or SD-JWT VC).
+3. **Wallet Holding (Exact Credential Flow)**: The wallet adapter receives the exact credential issued in Stage 2, stores it in its secure credential repository, and returns a holding confirmation.
+4. **Presentation Request**: Inji Verify creates an OpenID4VP authorization request with input descriptors and a cryptographic nonce.
+5. **Presentation Construction**: The wallet retrieves the stored credential matching the requested definition. If test tampering is enabled (corrupt signature, force expired), mutations are applied directly to that stored credential before submitting.
+6. **Authoritative Verification**: Inji Verify or mock verifier verifies the VP signature, checks revocation and expiry, validates issuer DID trust, and produces an authoritative result breakdown.
+7. **Report Evaluation**: `AuthoritativeVerdictEvaluator` scrutinizes the raw evidence and assigns `PASSED`, `FAILED`, `INCONCLUSIVE`, or `UNTESTED`.
 
-1. **Frontend Contract (`/api/runs`):**
-   - `POST /api/runs` — create a run and return `runId` plus initial state, mapped to UI `RunRecord`.
-   - `GET /api/runs` — retrieve historical runs in `RunRecord` format.
-   - `GET /api/runs/:runId` — return run metadata, state, sanitized events, and verification result when available.
-   - `POST /api/runs/:runId/issuance/start` — initiate/confirm issuance step.
-   - `POST /api/runs/:runId/presentation/start` — initiate/confirm presentation step.
+---
 
-2. **Core Orchestration Contract (`/api/v1/runs`):**
-   - `POST /api/v1/runs` — internal headless test execution pipeline.
-   - `GET /api/v1/runs/:id` — internal domain test run details.
-   - `GET /api/v1/runs/:id/events` — raw sanitized event history.
-   - `POST /api/v1/callbacks/verifier/:runId` — webhook receiver for verifier callbacks.
+## 4. Evaluator Correctness Invariants
 
-Shared event shape: `runId`, `eventId`, `timestamp`, `actor`, `protocolStep`, `direction`, `operation`, `sanitized request/response`, `httpStatus`, and `error detail`. Sensitive tokens, OTPs, private keys, and personal credential data are strictly redacted by policy.
+To achieve a `PASSED` verdict, all 5 conditions must be explicitly verified:
+1. `overallStatus === 'VALID'`
+2. `isSignatureValid === true`
+3. `isExpired === false`
+4. `isRevoked === false`
+5. `isIssuerTrusted === true`
 
-## Integration constraints
+If `isIssuerTrusted === false`, the verdict is strictly `FAILED` even if `overallStatus` was reported as `VALID`.
+If the verifier response is unparseable or infrastructure times out, the verdict is `INCONCLUSIVE`.
 
-- Protocol intent: OpenID4VCI for issuance and OpenID4VP for presentation.
-- Primary format target: W3C VC 1.1 JSON-LD (`w3c_vc_jsonld`).
-- Secondary format target: IETF SD-JWT VC (`sd_jwt_vc`).
-- Environment: Local Docker Compose deliverable provided via `docker-compose.yml`; MOSIP Collab as target remote environment.
-- Verifier authoritative result route: `/v1/verify` checking cryptographic validation fields.
+---
 
-## Closed Architecture Decisions (Signed Off by Arnav)
+## 5. Security & Boundary Architecture
 
-See `ARCHITECTURE_DECISION_RECORDS.md` for full context and specifications.
+1. **Strict CORS Allowlist**: Origin validation uses `config.corsOrigins` rather than open wildcard reflection in production.
+2. **Comprehensive Sanitization**: `EventSanitizer` redacts sensitive tokens, private keys (PEM/JWK), passwords, OTPs, PINs, and personal identity attributes (`fullName`, `firstName`, `lastName`, `dob`, `national_id`, `address`) recursively with depth guards.
+3. **Secure Webhook Callbacks**: Verifier callbacks are schema-validated with Zod, protected with optional Bearer/API-key authentication, correlated to the active run ID, and protected against replay attacks (409 Conflict).
+4. **Configurable Externally Reachable Callback URL**: `CALLBACK_BASE_URL` allows remote verifier containers in Docker or external clusters to reach the orchestrator without hardcoded `localhost`.
+5. **Timeout & Stuck-Run Prevention**: Every stage execution is wrapped in an `AbortController` timeout (`STAGE_TIMEOUT_MS`), and the overall run lifecycle is capped by `RUN_TIMEOUT_MS`.
 
-| Decision | Status & Resolved Position | Approved By / Implementation |
-|---|---|---|
-| Certify, wallet, Verify versions | **CLOSED**: Pinned to MOSIP Inji release `0.10.0` (tags `mosipid/inji-certify:0.10.0`, `mosipid/mimoto:0.10.0`, `mosipid/inji-verify:0.10.0`); Mock stack `1.0.0` | Arnav (ADR-006) |
-| Wallet choice and presentation mode | **CLOSED**: Automated headless runs use `simulated-wallet` / `inji-web` via Mimoto REST; Interactive mobile runs use `inji-wallet-mobile` with QR Code / Deep Link | Arnav (ADR-004) |
-| Issuance grant and authentication | **CLOSED**: Pre-authorized code flow (`urn:ietf:params:oauth:grant-type:pre-authorized_code`) for zero-touch automated tests; Auth Code with PKCE for interactive login | Arnav (ADR-004) |
-| Verify result route/schema | **CLOSED**: Standardized on Inji Verify `/v1/verify`. PASS requires all-green cryptographic validation: valid signature, untampered claims, unexpired, trusted DID | Arnav (ADR-001) |
-| Run persistence and event transport | **CLOSED**: Dual API routing (`/api/runs` and `/api/v1/runs`) with normalized `RunRecord` and strict recursive `EventSanitizer` (depth 6) | Arnav (ADR-002, ADR-005) |
-| Second credential format | **CLOSED**: Format 1 = W3C VC 1.1 JSON-LD; Format 2 = IETF SD-JWT VC. ISO mDL (`mso_mdoc`) confirmed and documented as unsupported blocker | Arnav (ADR-003) |
+---
 
-## Acceptance checks for the architecture
+## 6. Official References
 
-- One real issuance, wallet hold, VP presentation, and authoritative Verify result are correlated by run ID/transaction ID.
-- A 200 response or VP-received callback cannot set PASS.
-- Each report names the exact modules, versions, format, environment, final result, and sanitized evidence.
-- A failed or incompatible combination is shown as a failure with evidence, not silently converted into a pass.
-
-## Official references
-
-- [Inji Certify repository](https://github.com/inji/inji-certify) · [Certify local setup](https://docs.inji.io/inji-certify/build-and-deploy/local-setup)
-- [Inji Web local setup](https://docs.inji.io/inji-wallet/inji-web/build-and-deploy/local-setup)
-- [Inji Mobile end-user guide](https://docs.inji.io/inji-wallet/inji-mobile/functional-overview/end-user-guide)
-- [Inji Verify local setup](https://docs.inji.io/inji-verify/build-and-deploy/local-setup)
-- [OpenID4VP Verify integration guide](https://docs.inji.io/inji-verify/technical-overview/integration-guides/openid4vp-vp-verification-integration-guide)
+- [Inji Certify Repository](https://github.com/inji/inji-certify) · [Certify Local Setup](https://docs.inji.io/inji-certify/build-and-deploy/local-setup)
+- [Inji Web Local Setup](https://docs.inji.io/inji-wallet/inji-web/build-and-deploy/local-setup)
+- [Inji Mobile Guide](https://docs.inji.io/inji-wallet/inji-mobile/functional-overview/end-user-guide)
+- [Inji Verify Local Setup](https://docs.inji.io/inji-verify/build-and-deploy/local-setup)
+- [OpenID4VP Verify Integration Guide](https://docs.inji.io/inji-verify/technical-overview/integration-guides/openid4vp-vp-verification-integration-guide)

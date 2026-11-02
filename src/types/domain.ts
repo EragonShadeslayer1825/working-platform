@@ -64,6 +64,8 @@ export interface ProtocolEvent {
   action: string;
   payloadSummary: string;
   rawPayload: Record<string, unknown>;
+  requestPayload?: Record<string, unknown>;
+  responsePayload?: Record<string, unknown>;
   httpStatus?: number;
   durationMs?: number;
 }
@@ -87,6 +89,7 @@ export interface AuthoritativeVerificationEvidence {
   isExpired: boolean;
   isRevoked: boolean;
   isIssuerTrusted: boolean;
+  credentialType?: string;
   claimsValidated: Record<string, unknown>;
   verifierRawResponse: Record<string, unknown>;
 }

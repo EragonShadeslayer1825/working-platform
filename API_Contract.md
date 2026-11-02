@@ -1,7 +1,7 @@
-# Playground API Contract — Version 1.0 (Final Approved)
+# Playground API Contract — Version 1.1 (Repaired & Audited)
 
 > **Architect & Owner**: Arnav  
-> **Status**: Approved & Enacted across Frontend (Namya) and Backend (Dhyan)  
+> **Status**: Approved & Enacted across Frontend and Backend  
 > **Base Port**: Express Server `:4000`  
 
 These routes belong to our Playground Node/Express application. They are internal playground orchestration APIs, not Inji's internal service endpoints.
@@ -114,12 +114,15 @@ To guarantee total compatibility between the React/Next.js frontend UI and autom
 }
 ```
 
+*Critical Invariant on `credentialType`*:
+`verificationResult.credentialType` reflects strictly the verified credential type observed from verifier cryptographic evidence. It is never fabricated or defaulted to `IdentityCredential` when unobserved.
+
 ---
 
-### 2.3 Start Flows (Handoff Confirmation)
+### 2.3 Start Flows (Interactive Handoff Audit)
 
-- `POST /api/runs/:runId/issuance/start`
-- `POST /api/runs/:runId/presentation/start`
+- `POST /api/runs/:runId/issuance/start`: Records an audit event for user or automated initiation of credential issuance handoff.
+- `POST /api/runs/:runId/presentation/start`: Records an audit event for user or automated initiation of presentation submission handoff.
 
 Returns the updated `RunRecord`.
 
@@ -127,31 +130,60 @@ Returns the updated `RunRecord`.
 
 ## 3. Core Orchestration Endpoints (`/api/v1/runs`)
 
-- `POST /api/v1/runs`: Accepts `{ issuerId, walletId, verifierId, format, mockTamper }`.
+- `POST /api/v1/runs`: Accepts `{ issuerId, walletId, verifierId, format, mockTamper, interactiveMode }`.
 - `GET /api/v1/runs`: Returns array of test runs with timing and stage status.
 - `GET /api/v1/runs/:id`: Returns full pipeline stage breakdown (`stages` record) and report.
 - `GET /api/v1/runs/:id/events`: Returns sanitized event list.
-- `POST /api/v1/callbacks/verifier/:runId`: Webhook receiver for Inji Verify callback payloads.
+- `POST /api/v1/callbacks/verifier/:runId`: Secure webhook receiver for verifier callbacks.
+
+### 3.1 Verifier Webhook Callback Specification
+
+**Method & Path**: `POST /api/v1/callbacks/verifier/:runId`
+
+**Authentication**:
+Optional Bearer token or API key via `Authorization: Bearer <secret>` or `x-api-key: <secret>` when `CALLBACK_AUTH_SECRET` is configured in the environment.
+
+**Payload Schema (Zod Validated)**:
+```json
+{
+  "state": "optional correlation run ID",
+  "transactionId": "optional verifier txn ID",
+  "overallStatus": "VALID | INVALID | EXPIRED | REVOKED | UNTRUSTED_ISSUER | UNPARSEABLE",
+  "isSignatureValid": true,
+  "isExpired": false,
+  "isRevoked": false,
+  "isIssuerTrusted": true,
+  "credentialType": "IdentityCredential",
+  "claims": { "fullName": "Alice Doe" }
+}
+```
+
+**Security & Idempotency Rules**:
+- Rejects missing runs with `404 Not Found`.
+- Rejects correlation mismatch (`state !== runId`) with `400 Bad Request`.
+- Rejects duplicate / replay callback delivery with `409 Conflict`.
+- Strict evaluation: Callback receipt alone **never** establishes PASS. Authoritative evaluation determines verdict.
 
 ---
 
 ## 4. Verification States and Outcomes
 
-| State | Definition | Authoritative Rule |
+| State | Definition | Mandatory Evaluator Rules |
 |---|---|---|
-| `NOT_STARTED` | Run initialized, pipeline not yet triggered | Default state |
+| `NOT_STARTED` | Run initialized, pipeline not yet triggered | Default initial state |
 | `PENDING` | Pipeline is executing or awaiting async callback / QR action | Verification in flight |
-| `PASS` | Authoritative cryptographic verification succeeded | `isSignatureValid === true`, `isExpired === false`, `isRevoked === false`, `isIssuerTrusted === true`, and matching `credentialType` |
+| `PASS` | Authoritative cryptographic verification succeeded | `overallStatus === 'VALID'`, `isSignatureValid === true`, `isExpired === false`, `isRevoked === false`, `isIssuerTrusted === true` |
 | `INVALID` | Credential signature or payload tampered/rejected | Cryptographically rejected by Inji Verify |
 | `EXPIRED` | Credential validity period has passed | Confirmed past `expirationDate` |
-| `ERROR` | System transport failure or unhandled exception | Network timeout, service offline, malformed payload |
-
-> **Architectural Guardrail**: An HTTP 200 or transaction receipt from a wallet submission NEVER sets `PASS`.
+| `ERROR` | Fatal transport or unrecoverable system failure | Unhandled crash or invalid configuration |
+| `INCONCLUSIVE` | Technical inability to establish result | Network timeout, service offline, missing callback payload, or malformed response |
 
 ---
 
 ## 5. Security and Event Sanitization Policy
 
-All events returned by `/api/runs` and `/api/v1/runs/:id/events` are pre-sanitized by the backend before persistence:
-- Bearer tokens, private keys, client assertions, OTPs, passwords, and sensitive identity attributes (SSN, national IDs) are replaced with `[REDACTED_SENSITIVE_DATA]`.
-- Recursion depth is capped at 6.
+All events returned by `/api/runs` and `/api/v1/runs/:id/events` are pre-sanitized by `EventSanitizer` before persistence:
+- Sensitive authentication data (Bearer tokens, private keys, client assertions, OTPs, PINs, passwords) are redacted with `[REDACTED_SENSITIVE_DATA]`.
+- Embedded PEM private keys are replaced with `[REDACTED_PRIVATE_KEY]`.
+- Sensitive identity attributes (`fullName`, `firstName`, `lastName`, `dob`, `dateOfBirth`, `streetAddress`, `postalCode`, `national_id`) are redacted.
+- Recursion depth is capped at 6 to prevent denial of service from circular structures.

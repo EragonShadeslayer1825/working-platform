@@ -78,18 +78,47 @@ export class MockVerifierAdapter extends BaseAdapter implements IVerifierAdapter
     params: EvaluateResultParams
   ): Promise<AuthoritativeVerificationEvidence> {
     const startTime = Date.now();
-    const vp = params.vpToken as Record<string, unknown>;
-    const credentials = (vp?.verifiableCredential as Array<Record<string, unknown>>) || [];
-    const firstCred = credentials[0] || {};
-    const proof = (firstCred?.proof as Record<string, unknown>) || {};
-    const proofValue = String(proof?.proofValue || proof?.jws || '');
+    let isCorrupted = false;
+    let isExpired = false;
+    let isIssuerTrusted = true;
+    let credentialType: string | undefined = undefined;
+    let claimsValidated: Record<string, unknown> = {};
 
-    // Cryptographic inspection
-    const isCorrupted = proofValue.includes('CORRUPTED') || proofValue === '';
-    const expDate = firstCred?.expirationDate ? new Date(firstCred.expirationDate as string) : null;
-    const isExpired = expDate ? expDate.getTime() < Date.now() : false;
-    const issuer = String((firstCred?.issuer as Record<string, unknown>)?.id || firstCred?.issuer || '');
-    const isIssuerTrusted = issuer.includes('did:key') || issuer.includes('did:mosip');
+    if (typeof params.vpToken === 'string') {
+      // SD-JWT VC format (compact serialized token)
+      const tokenStr = params.vpToken;
+      isCorrupted = tokenStr.includes('CORRUPTED') || tokenStr.length < 10;
+      isExpired = tokenStr.includes('EXPIRED');
+      isIssuerTrusted = true;
+      credentialType = 'IdentityCredential';
+      claimsValidated = {
+        first_name: tokenStr.includes('Tampered Name') ? 'Tampered Name' : 'Alice',
+        format: 'sd_jwt_vc',
+      };
+    } else {
+      // W3C VC JSON-LD format
+      const vp = params.vpToken as Record<string, unknown>;
+      const credentials = (vp?.verifiableCredential as Array<Record<string, unknown>>) || [];
+      const firstCred = credentials[0] || {};
+      const proof = (firstCred?.proof as Record<string, unknown>) || {};
+      const proofValue = String(proof?.proofValue || proof?.jws || '');
+
+      // Simulated cryptographic inspection
+      isCorrupted = proofValue.includes('CORRUPTED') || proofValue === '';
+      const expDate = firstCred?.expirationDate ? new Date(firstCred.expirationDate as string) : null;
+      isExpired = expDate ? expDate.getTime() < Date.now() : false;
+      const issuer = String((firstCred?.issuer as Record<string, unknown>)?.id || firstCred?.issuer || '');
+      isIssuerTrusted = issuer.includes('did:key') || issuer.includes('did:mosip');
+
+      // Extract observed credential type from actual credential
+      if (Array.isArray(firstCred.type)) {
+        credentialType = (firstCred.type as string[]).find((t: string) => t !== 'VerifiableCredential') || firstCred.type[0];
+      } else if (typeof firstCred.type === 'string') {
+        credentialType = firstCred.type;
+      }
+
+      claimsValidated = (firstCred.credentialSubject as Record<string, unknown>) || {};
+    }
 
     let overallStatus: AuthoritativeVerificationEvidence['overallStatus'] = 'VALID';
     if (isCorrupted) {
@@ -102,9 +131,12 @@ export class MockVerifierAdapter extends BaseAdapter implements IVerifierAdapter
 
     const rawResponse = {
       verification_status: overallStatus,
+      is_simulated: true,
+      simulation_note: 'Simulated reference evaluation for local interop testing (NOT real cryptographic verification)',
       cryptographic_validity: !isCorrupted,
       expiration_validity: !isExpired,
       trust_chain_validity: isIssuerTrusted,
+      credential_type: credentialType,
       checked_at: new Date().toISOString(),
       nonce_match: true,
     };
@@ -117,7 +149,8 @@ export class MockVerifierAdapter extends BaseAdapter implements IVerifierAdapter
       isExpired,
       isRevoked: false,
       isIssuerTrusted,
-      claimsValidated: (firstCred.credentialSubject as Record<string, unknown>) || {},
+      credentialType,
+      claimsValidated,
       verifierRawResponse: rawResponse,
     };
   }

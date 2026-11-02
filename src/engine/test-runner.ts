@@ -20,6 +20,8 @@ import { ProtocolEventBus } from './event-bus.js';
 import { ITestRunRepository } from '../storage/repository.js';
 import { config } from '../config/env.js';
 
+import { InjiMobileWalletAdapter } from '../adapters/wallet/inji-mobile.adapter.js';
+
 export class TestOrchestrationEngine {
   constructor(private repo: ITestRunRepository) {}
 
@@ -75,6 +77,16 @@ export class TestOrchestrationEngine {
     let wallet: IWalletAdapter;
     if (runConfig.walletId === 'inji-web') {
       wallet = new InjiWebAdapter(config.mimotoWalletBaseUrl);
+    } else if (runConfig.walletId === 'inji-wallet-mobile' || runConfig.walletId === 'inji-mobile') {
+      if (!runConfig.interactiveMode) {
+        throw Object.assign(
+          new Error(
+            'Inji Mobile Wallet requires interactive mode (QR scan / deep link). Automated headless execution is unsupported.'
+          ),
+          { isAuthoritativeFailure: false }
+        );
+      }
+      wallet = new InjiMobileWalletAdapter();
     } else {
       wallet = new SimulatedWalletAdapter();
     }
@@ -90,12 +102,32 @@ export class TestOrchestrationEngine {
     return { issuer, wallet, verifier };
   }
 
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    stageName: string
+  ): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          Object.assign(new Error(`Stage ${stageName} timed out after ${timeoutMs}ms`), {
+            isAuthoritativeFailure: false,
+          })
+        );
+      }, timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
   private async executePipeline(runId: string, runConfig: TestRunConfig): Promise<void> {
     const startTime = Date.now();
     let currentRun = await this.repo.getRun(runId);
     if (!currentRun) return;
 
-    const { issuer, wallet, verifier } = this.resolveAdapters(runConfig);
     let authoritativeEvidence: AuthoritativeVerificationEvidence | undefined;
 
     const logAndSaveEvents = async (events: ProtocolEvent[]) => {
@@ -103,6 +135,15 @@ export class TestOrchestrationEngine {
     };
 
     try {
+      const { issuer, wallet, verifier } = this.resolveAdapters(runConfig);
+
+      // Check overall run timeout
+      if (Date.now() - startTime > config.testRunTotalTimeoutMs) {
+        throw Object.assign(new Error(`Test run timed out after ${config.testRunTotalTimeoutMs}ms`), {
+          isAuthoritativeFailure: false,
+        });
+      }
+
       // -------------------------------------------------------------
       // STAGE 1: DISCOVERY_AND_CONFIG
       // -------------------------------------------------------------
@@ -138,11 +179,15 @@ export class TestOrchestrationEngine {
       // STAGE 2: OFFER_ISSUANCE (OpenID4VCI)
       // -------------------------------------------------------------
       await this.updateStageStatus(runId, 'OFFER_ISSUANCE', 'IN_PROGRESS');
-      const offerResult = await issuer.initiateIssuance({
-        runId,
-        format: runConfig.format,
-        proofType: runConfig.proofType,
-      });
+      const offerResult = await this.withTimeout(
+        issuer.initiateIssuance({
+          runId,
+          format: runConfig.format,
+          proofType: runConfig.proofType,
+        }),
+        config.stageTimeoutMs,
+        'OFFER_ISSUANCE'
+      );
 
       const offerEvents = offerResult.protocolEvents.map((e) => ({
         ...e,
@@ -165,6 +210,31 @@ export class TestOrchestrationEngine {
         return;
       }
 
+      // Deliver the actual credential produced by the issuer for storage
+      let issuedCredential: Record<string, unknown> | string | undefined;
+      try {
+        const deliverResult = await this.withTimeout(
+          issuer.deliverCredential({
+            runId,
+            accessToken: offerResult.preAuthorizedCode || 'simulated-access-token',
+            format: runConfig.format,
+          }),
+          config.stageTimeoutMs,
+          'OFFER_ISSUANCE_DELIVERY'
+        );
+        issuedCredential = deliverResult.credential;
+        const deliverEvents = deliverResult.protocolEvents.map((e) => ({
+          ...e,
+          eventId: uuidv4(),
+          runId,
+          timestamp: new Date().toISOString(),
+        }));
+        await logAndSaveEvents(deliverEvents);
+      } catch (err: unknown) {
+        // If deliverCredential is intentionally handled by wallet BFF directly (e.g. Mimoto)
+        issuedCredential = undefined;
+      }
+
       await this.updateStageStatus(runId, 'OFFER_ISSUANCE', 'COMPLETED', {
         offerUri: offerResult.offerUri,
       });
@@ -173,11 +243,17 @@ export class TestOrchestrationEngine {
       // STAGE 3: WALLET_STORAGE (Ingest Credential)
       // -------------------------------------------------------------
       await this.updateStageStatus(runId, 'WALLET_STORAGE', 'IN_PROGRESS');
-      const holdingResult = await wallet.acceptOffer({
-        runId,
-        offerResult,
-        format: runConfig.format,
-      });
+      const holdingResult = await this.withTimeout(
+        wallet.acceptOffer({
+          runId,
+          offerResult,
+          format: runConfig.format,
+          issuedCredential,
+          issuer,
+        }),
+        config.stageTimeoutMs,
+        'WALLET_STORAGE'
+      );
 
       const walletEvents = holdingResult.protocolEvents.map((e) => ({
         ...e,
@@ -194,12 +270,16 @@ export class TestOrchestrationEngine {
       // STAGE 4: PRESENTATION_REQUEST (OpenID4VP)
       // -------------------------------------------------------------
       await this.updateStageStatus(runId, 'PRESENTATION_REQUEST', 'IN_PROGRESS');
-      const callbackUrl = `http://localhost:${config.port}/api/v1/callbacks/verifier/${runId}`;
-      const presentationRequest = await verifier.createPresentationRequest({
-        runId,
-        format: runConfig.format,
-        callbackUrl,
-      });
+      const callbackUrl = `${config.callbackBaseUrl}/api/v1/callbacks/verifier/${runId}`;
+      const presentationRequest = await this.withTimeout(
+        verifier.createPresentationRequest({
+          runId,
+          format: runConfig.format,
+          callbackUrl,
+        }),
+        config.stageTimeoutMs,
+        'PRESENTATION_REQUEST'
+      );
 
       const presReqEvents = presentationRequest.protocolEvents.map((e) => ({
         ...e,
@@ -216,12 +296,16 @@ export class TestOrchestrationEngine {
       // STAGE 5: PRESENTATION_SUBMISSION (VP Token)
       // -------------------------------------------------------------
       await this.updateStageStatus(runId, 'PRESENTATION_SUBMISSION', 'IN_PROGRESS');
-      const submissionResult = await wallet.generatePresentation({
-        runId,
-        presentationRequestUri: presentationRequest.requestUri,
-        presentationDefinition: presentationRequest.presentationDefinition,
-        tamper: runConfig.mockTamper,
-      });
+      const submissionResult = await this.withTimeout(
+        wallet.generatePresentation({
+          runId,
+          presentationRequestUri: presentationRequest.requestUri,
+          presentationDefinition: presentationRequest.presentationDefinition,
+          tamper: runConfig.mockTamper,
+        }),
+        config.stageTimeoutMs,
+        'PRESENTATION_SUBMISSION'
+      );
 
       const presSubEvents = submissionResult.protocolEvents.map((e) => ({
         ...e,
@@ -238,12 +322,16 @@ export class TestOrchestrationEngine {
       await this.updateStageStatus(runId, 'AUTHORITATIVE_VERIFICATION', 'IN_PROGRESS');
       
       // Authoritative evaluation rule: query the actual verifier adapter
-      authoritativeEvidence = await verifier.evaluateAuthoritativeResult({
-        runId,
-        vpToken: submissionResult.vpToken,
-        presentationSubmission: submissionResult.presentationSubmission,
-        nonce: presentationRequest.nonce,
-      });
+      authoritativeEvidence = await this.withTimeout(
+        verifier.evaluateAuthoritativeResult({
+          runId,
+          vpToken: submissionResult.vpToken,
+          presentationSubmission: submissionResult.presentationSubmission,
+          nonce: presentationRequest.nonce,
+        }),
+        config.stageTimeoutMs,
+        'AUTHORITATIVE_VERIFICATION'
+      );
 
       const verifierEvent = ProtocolEventBus.createEvent({
         runId,

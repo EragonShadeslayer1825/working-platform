@@ -36,6 +36,20 @@ export class ComponentRegistry {
         description: 'Lightweight standards-compliant OpenID4VCI issuer simulator for rapid baseline testing.',
       },
     ],
+    [
+      'mock-issuer',
+      {
+        id: 'mock-issuer',
+        name: 'Mock OpenID4VCI Reference Issuer',
+        role: 'issuer',
+        isMock: true,
+        version: '1.0.0',
+        supportedFormats: ['w3c_vc_jsonld', 'sd_jwt_vc'],
+        supportedProtocols: ['OpenID4VCI-draft13'],
+        status: 'ready',
+        description: 'Lightweight standards-compliant OpenID4VCI issuer simulator for rapid baseline testing.',
+      },
+    ],
   ]);
 
   private static wallets: Map<string, ComponentMetadata> = new Map([
@@ -65,13 +79,41 @@ export class ComponentRegistry {
         supportedFormats: ['w3c_vc_jsonld', 'sd_jwt_vc', 'mso_mdoc'],
         supportedProtocols: ['OpenID4VCI-draft13', 'OpenID4VP-draft21', 'PixelPass-QR'],
         status: 'ready',
-        description: 'React Native Inji Wallet with QR code scanning and offline BLE transfer (Tuvali).',
+        description: 'React Native Inji Wallet with interactive QR code scanning and deep link handoff.',
+      },
+    ],
+    [
+      'inji-mobile',
+      {
+        id: 'inji-mobile',
+        name: 'Inji Wallet Mobile (App)',
+        role: 'wallet',
+        isMock: false,
+        version: '0.10.x',
+        supportedFormats: ['w3c_vc_jsonld', 'sd_jwt_vc', 'mso_mdoc'],
+        supportedProtocols: ['OpenID4VCI-draft13', 'OpenID4VP-draft21', 'PixelPass-QR'],
+        status: 'ready',
+        description: 'React Native Inji Wallet with interactive QR code scanning and deep link handoff.',
       },
     ],
     [
       'simulated-wallet',
       {
         id: 'simulated-wallet',
+        name: 'Simulated Automated Holder',
+        role: 'wallet',
+        isMock: true,
+        version: '1.0.0',
+        supportedFormats: ['w3c_vc_jsonld', 'sd_jwt_vc', 'mso_mdoc'],
+        supportedProtocols: ['OpenID4VCI-draft13', 'OpenID4VP-draft21'],
+        status: 'ready',
+        description: 'Headless automated wallet agent for continuous automated test pipeline verification.',
+      },
+    ],
+    [
+      'mock-wallet',
+      {
+        id: 'mock-wallet',
         name: 'Simulated Automated Holder',
         role: 'wallet',
         isMock: true,
@@ -114,18 +156,47 @@ export class ComponentRegistry {
         description: 'Mock OpenID4VP Relying Party simulator performing JSON-LD and SD-JWT validation.',
       },
     ],
+    [
+      'mock-verifier',
+      {
+        id: 'mock-verifier',
+        name: 'Mock OpenID4VP Reference Verifier',
+        role: 'verifier',
+        isMock: true,
+        version: '1.0.0',
+        supportedFormats: ['w3c_vc_jsonld', 'sd_jwt_vc'],
+        supportedProtocols: ['OpenID4VP-draft21'],
+        status: 'ready',
+        description: 'Mock OpenID4VP Relying Party simulator performing JSON-LD and SD-JWT validation.',
+      },
+    ],
   ]);
 
   public static getIssuers(): ComponentMetadata[] {
-    return Array.from(this.issuers.values());
+    const seen = new Set<string>();
+    return Array.from(this.issuers.values()).filter(c => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
   }
 
   public static getWallets(): ComponentMetadata[] {
-    return Array.from(this.wallets.values());
+    const seen = new Set<string>();
+    return Array.from(this.wallets.values()).filter(c => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
   }
 
   public static getVerifiers(): ComponentMetadata[] {
-    return Array.from(this.verifiers.values());
+    const seen = new Set<string>();
+    return Array.from(this.verifiers.values()).filter(c => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
   }
 
   public static getIssuer(id: string): ComponentMetadata | undefined {

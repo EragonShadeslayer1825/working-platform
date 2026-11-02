@@ -106,12 +106,57 @@ export class AuthoritativeVerdictEvaluator {
       };
     }
 
-    // 4. Scrutinize the cryptographic and policy checks in authoritative evidence
-    if (authoritativeEvidence.overallStatus === 'VALID' && authoritativeEvidence.isSignatureValid && !authoritativeEvidence.isExpired && !authoritativeEvidence.isRevoked) {
+    // 4. Handle malformed or unknown verifier evidence (technical inability to establish result)
+    if (authoritativeEvidence.overallStatus === 'UNPARSEABLE') {
+      return {
+        runId,
+        verdict: 'INCONCLUSIVE',
+        summary: 'Verifier returned an unparseable or malformed response; outcome cannot be authoritatively determined.',
+        evaluatedAt: nowIso,
+        issuerId: config.issuerId,
+        walletId: config.walletId,
+        verifierId: config.verifierId,
+        format: config.format,
+        proofType: config.proofType,
+        authoritativeEvidence,
+        inconclusiveReason: 'Verifier response was unparseable or malformed.',
+        totalDurationMs,
+      };
+    }
+
+    const validStatuses = ['VALID', 'INVALID', 'EXPIRED', 'REVOKED', 'UNTRUSTED_ISSUER', 'UNPARSEABLE'];
+    if (!validStatuses.includes(authoritativeEvidence.overallStatus)) {
+      return {
+        runId,
+        verdict: 'INCONCLUSIVE',
+        summary: `Verifier reported an unknown status (${authoritativeEvidence.overallStatus}); authoritative result cannot be established.`,
+        evaluatedAt: nowIso,
+        issuerId: config.issuerId,
+        walletId: config.walletId,
+        verifierId: config.verifierId,
+        format: config.format,
+        proofType: config.proofType,
+        authoritativeEvidence,
+        inconclusiveReason: `Unknown verifier status: ${authoritativeEvidence.overallStatus}`,
+        totalDurationMs,
+      };
+    }
+
+    // 5. Scrutinize the cryptographic and policy checks in authoritative evidence.
+    // ALL mandatory criteria MUST be explicitly satisfied for PASSED:
+    // overallStatus === VALID, valid signature, unexpired, unrevoked, and trusted issuer.
+    const isPass =
+      authoritativeEvidence.overallStatus === 'VALID' &&
+      authoritativeEvidence.isSignatureValid === true &&
+      authoritativeEvidence.isExpired === false &&
+      authoritativeEvidence.isRevoked === false &&
+      authoritativeEvidence.isIssuerTrusted === true;
+
+    if (isPass) {
       return {
         runId,
         verdict: 'PASSED',
-        summary: `End-to-end verification succeeded. Verifier confirmed cryptographically valid signature, active status, and schema compliance for format ${config.format}.`,
+        summary: `End-to-end verification succeeded. Verifier confirmed cryptographically valid signature, trusted issuer DID/certificate, unexpired and unrevoked status for format ${config.format}.`,
         evaluatedAt: nowIso,
         issuerId: config.issuerId,
         walletId: config.walletId,
@@ -123,12 +168,12 @@ export class AuthoritativeVerdictEvaluator {
       };
     }
 
-    // 5. Verification failure reasons
+    // 6. Verification failure reasons (Authoritative Rejection)
     const reasons: string[] = [];
     if (!authoritativeEvidence.isSignatureValid) reasons.push('Invalid cryptographic signature');
     if (authoritativeEvidence.isExpired) reasons.push('Credential has expired');
     if (authoritativeEvidence.isRevoked) reasons.push('Credential revocation check failed');
-    if (!authoritativeEvidence.isIssuerTrusted) reasons.push('Issuer DID / certificate not trusted by verifier');
+    if (!authoritativeEvidence.isIssuerTrusted) reasons.push('Issuer is not trusted by verifier');
     if (authoritativeEvidence.overallStatus !== 'VALID') reasons.push(`Verifier status: ${authoritativeEvidence.overallStatus}`);
 
     return {

@@ -31,7 +31,7 @@ export class InjiWebAdapter extends BaseAdapter implements IWalletAdapter {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          credential_offer_uri: params.offerResult.offerUri,
+          credential_offer_uri: params.offerResult?.offerUri || params.offerUri || '',
           format: params.format,
         }),
       });

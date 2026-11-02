@@ -11,7 +11,9 @@ export abstract class BaseAdapter {
     summary: string,
     rawPayload: Record<string, unknown>,
     httpStatus?: number,
-    durationMs?: number
+    durationMs?: number,
+    requestPayload?: Record<string, unknown>,
+    responsePayload?: Record<string, unknown>
   ): Omit<ProtocolEvent, 'eventId' | 'runId' | 'timestamp'> {
     return {
       stage,
@@ -21,6 +23,8 @@ export abstract class BaseAdapter {
       action,
       payloadSummary: summary,
       rawPayload: (EventSanitizer.sanitize(rawPayload) as Record<string, unknown>) || {},
+      requestPayload: requestPayload ? (EventSanitizer.sanitize(requestPayload) as Record<string, unknown>) : undefined,
+      responsePayload: responsePayload ? (EventSanitizer.sanitize(responsePayload) as Record<string, unknown>) : undefined,
       httpStatus,
       durationMs,
     };

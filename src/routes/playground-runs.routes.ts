@@ -1,36 +1,52 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { TestOrchestrationEngine } from '../engine/test-runner.js';
 import { ITestRunRepository } from '../storage/repository.js';
 import { CredentialFormat, StageId, TestRun, TestRunConfig } from '../types/domain.js';
+import { ProtocolEventBus } from '../engine/event-bus.js';
 
-type Environment = 'collab' | 'local';
-type UiCredentialFormat = 'jsonld-vc-1.1' | 'sd-jwt-vc';
-type VerificationState = 'NOT_STARTED' | 'PENDING' | 'PASS' | 'INVALID' | 'EXPIRED' | 'ERROR';
+export type Environment = 'collab' | 'local';
+export type UiCredentialFormat = 'jsonld-vc-1.1' | 'sd-jwt-vc';
+export type VerificationState =
+  | 'NOT_STARTED'
+  | 'PENDING'
+  | 'PASS'
+  | 'INVALID'
+  | 'EXPIRED'
+  | 'INCONCLUSIVE'
+  | 'ERROR';
 
-interface ModuleSelection {
-  id: string;
-  version: string;
-}
+const ModuleSelectionSchema = z.object({
+  id: z.string().min(1),
+  version: z.string().optional().default('1.0.0'),
+});
 
-interface CreatePlaygroundRunBody {
-  environment?: Environment;
-  modules?: {
-    issuer?: ModuleSelection;
-    wallet?: ModuleSelection;
-    verifier?: ModuleSelection;
-  };
-  credentialFormat?: UiCredentialFormat | CredentialFormat;
-  // Fallbacks for direct flat fields
-  issuerId?: string;
-  walletId?: string;
-  verifierId?: string;
-  format?: CredentialFormat;
-  mockTamper?: {
-    corruptSignature?: boolean;
-    forceExpired?: boolean;
-    alterClaims?: boolean;
-  };
-}
+export const CreatePlaygroundRunSchema = z.object({
+  environment: z.enum(['collab', 'local']).optional().default('collab'),
+  modules: z
+    .object({
+      issuer: ModuleSelectionSchema.optional(),
+      wallet: ModuleSelectionSchema.optional(),
+      verifier: ModuleSelectionSchema.optional(),
+    })
+    .optional(),
+  credentialFormat: z
+    .enum(['jsonld-vc-1.1', 'sd-jwt-vc', 'w3c_vc_jsonld', 'sd_jwt_vc', 'mso_mdoc'])
+    .optional(),
+  issuerId: z.string().optional(),
+  walletId: z.string().optional(),
+  verifierId: z.string().optional(),
+  format: z.enum(['w3c_vc_jsonld', 'sd_jwt_vc', 'mso_mdoc']).optional(),
+  mockTamper: z
+    .object({
+      corruptSignature: z.boolean().optional(),
+      forceExpired: z.boolean().optional(),
+      alterClaims: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+export type CreatePlaygroundRunBody = z.infer<typeof CreatePlaygroundRunSchema>;
 
 /**
  * Maps frontend UI module identifiers to backend registry IDs.
@@ -105,13 +121,22 @@ function mapStageToStep(stage?: StageId): string {
 
 /**
  * Derives normalized verification state from TestRun.
+ * Accurately distinguishes PASS, INVALID, EXPIRED, INCONCLUSIVE, and ERROR.
  */
-function deriveVerificationState(run: TestRun): VerificationState {
+export function deriveVerificationState(run: TestRun): VerificationState {
   if (run.report) {
     if (run.report.verdict === 'PASSED') return 'PASS';
+    if (run.report.verdict === 'INCONCLUSIVE') return 'INCONCLUSIVE';
     const reason = (run.report.failureReason || '').toUpperCase();
     if (reason.includes('EXPIRED')) return 'EXPIRED';
-    if (reason.includes('INVALID') || reason.includes('SIGNATURE')) return 'INVALID';
+    if (
+      reason.includes('INVALID') ||
+      reason.includes('SIGNATURE') ||
+      reason.includes('REVOKED') ||
+      reason.includes('UNTRUSTED')
+    ) {
+      return 'INVALID';
+    }
     return 'ERROR';
   }
 
@@ -132,29 +157,60 @@ function deriveVerificationState(run: TestRun): VerificationState {
 
 /**
  * Converts a backend TestRun into the frontend RunRecord contract.
+ * Preserves actual observed credentialType and does not fabricate missing evidence.
  */
-function formatRunRecord(run: TestRun, environment: Environment = 'collab') {
+export function formatRunRecord(run: TestRun, environment: Environment = 'collab') {
   const vState = deriveVerificationState(run);
   const uiFormat = toUiFormat(run.config.format);
 
-  const formattedEvents = (run.events || []).map((e) => ({
-    runId: e.runId,
-    eventId: e.eventId,
-    timestamp: e.timestamp,
-    step: mapStageToStep(e.stage),
-    protocolStep: e.stage,
-    actor: e.source,
-    direction: `${e.source} -> ${e.destination}`,
-    operation: e.action,
-    httpStatus: e.httpStatus ?? 200,
-    status: e.httpStatus ?? 200,
-    request: e.rawPayload,
-    response: e.rawPayload,
-    error: e.stage === 'AUTHORITATIVE_VERIFICATION' && vState !== 'PASS' ? run.report?.failureReason : undefined,
-  }));
+  const formattedEvents = (run.events || []).map((e) => {
+    let request: unknown = undefined;
+    let response: unknown = undefined;
+
+    if (e.requestPayload) {
+      request = e.requestPayload;
+    } else if (e.rawPayload && typeof e.rawPayload === 'object' && 'request' in e.rawPayload) {
+      request = (e.rawPayload as { request: unknown }).request;
+    }
+
+    if (e.responsePayload) {
+      response = e.responsePayload;
+    } else if (e.rawPayload && typeof e.rawPayload === 'object' && 'response' in e.rawPayload) {
+      response = (e.rawPayload as { response: unknown }).response;
+    }
+
+    // When distinct request/response are not specified, assign to the relevant side
+    if (!request && !response) {
+      if (e.destination === 'ORCHESTRATOR' || e.destination === 'WALLET' || e.action.includes('RESPONSE')) {
+        response = e.rawPayload;
+      } else {
+        request = e.rawPayload;
+      }
+    }
+
+    return {
+      runId: e.runId,
+      eventId: e.eventId,
+      timestamp: e.timestamp,
+      step: mapStageToStep(e.stage),
+      protocolStep: e.stage,
+      actor: e.source,
+      direction: `${e.source} -> ${e.destination}`,
+      operation: e.action,
+      httpStatus: e.httpStatus,
+      status: e.httpStatus,
+      request,
+      response,
+      error:
+        e.stage === 'AUTHORITATIVE_VERIFICATION' && vState !== 'PASS'
+          ? run.report?.failureReason || run.report?.inconclusiveReason
+          : undefined,
+    };
+  });
 
   const expectedCredentialType = 'IdentityCredential';
-  const observedCredentialType = run.report?.authoritativeEvidence?.credentialType || (vState === 'PASS' ? expectedCredentialType : undefined);
+  // Read ONLY the observed credential type from verified evidence; NEVER fabricate
+  const observedCredentialType = run.report?.authoritativeEvidence?.credentialType;
 
   return {
     runId: run.runId,
@@ -164,7 +220,7 @@ function formatRunRecord(run: TestRun, environment: Environment = 'collab') {
       state: vState,
       credentialType: observedCredentialType,
       expectedCredentialType: expectedCredentialType,
-      error: vState === 'PASS' ? undefined : run.report?.failureReason,
+      error: vState === 'PASS' ? undefined : run.report?.failureReason || run.report?.inconclusiveReason,
     },
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
@@ -209,11 +265,23 @@ export function createPlaygroundRunsRouter(
 
   /**
    * POST /api/runs
-   * Creates a new run per the agreed API Contract.
+   * Creates a new run per the agreed API Contract with runtime Zod schema validation.
    */
   router.post('/', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const body = req.body as CreatePlaygroundRunBody;
+      const parseResult = CreatePlaygroundRunSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid test run configuration payload',
+            details: parseResult.error.format(),
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
+
+      const body = parseResult.data;
       const environment: Environment = body.environment || 'collab';
 
       const issuerId = normalizeModuleId('issuer', body.modules?.issuer?.id || body.issuerId);
@@ -278,7 +346,7 @@ export function createPlaygroundRunsRouter(
 
   /**
    * POST /api/runs/:runId/issuance/start
-   * Initiates/confirms the issuance flow step.
+   * Initiates/confirms user handoff for issuance step.
    */
   router.post('/:runId/issuance/start', async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -288,8 +356,20 @@ export function createPlaygroundRunsRouter(
         return res.status(404).json({ message: `Run ${runId} not found` });
       }
 
-      const record = formatRunRecord(run);
-      res.json(record);
+      const handoffEvent = ProtocolEventBus.createEvent({
+        runId,
+        stage: 'OFFER_ISSUANCE',
+        protocol: 'INTERNAL',
+        source: 'ORCHESTRATOR',
+        destination: 'WALLET',
+        action: 'ISSUANCE_HANDOFF_CONFIRMED',
+        payloadSummary: 'User initiated issuance stage handoff from UI',
+        rawPayload: { initiatedAt: new Date().toISOString() },
+      });
+      await repo.appendEvents(runId, [handoffEvent]);
+
+      const updated = await repo.getRun(runId);
+      res.json(formatRunRecord(updated || run));
     } catch (err) {
       next(err);
     }
@@ -297,7 +377,7 @@ export function createPlaygroundRunsRouter(
 
   /**
    * POST /api/runs/:runId/presentation/start
-   * Initiates/confirms the presentation flow step.
+   * Initiates/confirms user handoff for presentation step.
    */
   router.post('/:runId/presentation/start', async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -307,8 +387,20 @@ export function createPlaygroundRunsRouter(
         return res.status(404).json({ message: `Run ${runId} not found` });
       }
 
-      const record = formatRunRecord(run);
-      res.json(record);
+      const handoffEvent = ProtocolEventBus.createEvent({
+        runId,
+        stage: 'PRESENTATION_REQUEST',
+        protocol: 'INTERNAL',
+        source: 'ORCHESTRATOR',
+        destination: 'VERIFIER',
+        action: 'PRESENTATION_HANDOFF_CONFIRMED',
+        payloadSummary: 'User initiated presentation stage handoff from UI',
+        rawPayload: { initiatedAt: new Date().toISOString() },
+      });
+      await repo.appendEvents(runId, [handoffEvent]);
+
+      const updated = await repo.getRun(runId);
+      res.json(formatRunRecord(updated || run));
     } catch (err) {
       next(err);
     }
