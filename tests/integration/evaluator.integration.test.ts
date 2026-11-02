@@ -284,6 +284,61 @@ test('Evaluator: untrusted issuer evidence → FAILED', () => {
   assert.ok(result.failureReason, 'Should include a failure reason for untrusted issuer');
 });
 
+test('Evaluator: overallStatus VALID but isIssuerTrusted false MUST evaluate to FAILED', () => {
+  const untrustedIssuerWithValidOverall: AuthoritativeVerificationEvidence = {
+    ...validEvidence,
+    overallStatus: 'VALID',
+    isIssuerTrusted: false, // Untrusted issuer must NEVER pass
+  };
+
+  const result = AuthoritativeVerdictEvaluator.evaluate(
+    makeInput({ authoritativeEvidence: untrustedIssuerWithValidOverall })
+  );
+
+  assert.equal(
+    result.verdict,
+    'FAILED',
+    'Evidence with untrusted issuer must never evaluate to PASSED even if overallStatus is VALID'
+  );
+  assert.ok(
+    result.failureReason?.includes('Issuer is not trusted'),
+    'Failure reason must cite untrusted issuer'
+  );
+});
+
+test('Evaluator: unparseable verifier response evaluates to INCONCLUSIVE', () => {
+  const unparseableEvidence: AuthoritativeVerificationEvidence = {
+    ...validEvidence,
+    overallStatus: 'UNPARSEABLE',
+    isSignatureValid: false,
+  };
+
+  const result = AuthoritativeVerdictEvaluator.evaluate(
+    makeInput({ authoritativeEvidence: unparseableEvidence })
+  );
+
+  assert.equal(
+    result.verdict,
+    'INCONCLUSIVE',
+    'Unparseable verifier response represents technical inability to evaluate and must be INCONCLUSIVE'
+  );
+});
+
+test('Evaluator: contradictory evidence (overallStatus VALID but signature invalid) evaluates to FAILED', () => {
+  const contradictoryEvidence: AuthoritativeVerificationEvidence = {
+    ...validEvidence,
+    overallStatus: 'VALID',
+    isSignatureValid: false,
+  };
+
+  const result = AuthoritativeVerdictEvaluator.evaluate(
+    makeInput({ authoritativeEvidence: contradictoryEvidence })
+  );
+
+  assert.equal(result.verdict, 'FAILED');
+  assert.ok(result.failureReason?.includes('signature'));
+});
+
 // ─── INCONCLUSIVE: missing evidence after HTTP success ───────────────────────
 
 test('Evaluator: HTTP success with no authoritative evidence → INCONCLUSIVE', () => {

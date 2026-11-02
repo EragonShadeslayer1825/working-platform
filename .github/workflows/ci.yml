@@ -2,7 +2,7 @@ name: Interoperability Orchestrator CI
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "repair/**" ]
   pull_request:
     branches: [ "main", "master" ]
 
@@ -25,17 +25,8 @@ jobs:
     - name: Build Backend (TypeScript)
       run: npm run build:backend
 
-    - name: Build Frontend (Next.js)
+    - name: Build Frontend (Next.js with strict TypeScript checks)
       run: npm run build
 
-    - name: Run Orchestrator Unit Tests
-      run: node --import tsx/esm --test tests/orchestrator.test.ts
-
-    - name: Run API Integration Tests (mock stack)
-      run: node --import tsx/esm --test tests/integration/api.integration.test.ts
-
-    - name: Run Sanitization Policy Tests
-      run: node --import tsx/esm --test tests/integration/sanitization.integration.test.ts
-
-    - name: Run Evaluator Verdict Branch Tests
-      run: node --import tsx/esm --test tests/integration/evaluator.integration.test.ts
+    - name: Run Full Interoperability Test Suite
+      run: npm test

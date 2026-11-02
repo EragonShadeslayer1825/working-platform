@@ -43,8 +43,13 @@ export interface IIssuerAdapter {
 
 export interface WalletAcceptOfferParams {
   runId: string;
-  offerResult: IssuanceOfferResult;
+  offerResult?: IssuanceOfferResult;
+  offerUri?: string;
+  preAuthorizedCode?: string;
+  userPin?: string;
   format: CredentialFormat;
+  issuedCredential?: Record<string, unknown> | string;
+  issuer?: IIssuerAdapter;
 }
 
 export interface WalletHoldingResult {

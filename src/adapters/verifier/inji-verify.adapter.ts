@@ -25,21 +25,25 @@ export class InjiVerifyAdapter extends BaseAdapter implements IVerifierAdapter {
   ): Promise<PresentationRequestResult> {
     const startTime = Date.now();
     const endpoint = `${this.baseUrl}/v1/presentation-request`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.stageTimeoutMs || 30000);
 
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
         body: JSON.stringify({
           format: params.format,
           callback_url: params.callbackUrl,
           required_claims: params.requiredClaims || ['fullName', 'country'],
         }),
+        signal: controller.signal,
       });
 
-      const responseBody = (await response.json()) as Record<string, unknown>;
+      const responseBody = (await response.json().catch(() => null)) as Record<string, unknown> | null;
       const durationMs = Date.now() - startTime;
 
       const event = this.buildEvent(
@@ -48,14 +52,20 @@ export class InjiVerifyAdapter extends BaseAdapter implements IVerifierAdapter {
         'VERIFIER',
         'WALLET',
         'INJI_VERIFY_REQUEST_CREATED',
-        `Inji Verify generated presentation request (status ${response.status})`,
-        { response: responseBody },
+        `Inji Verify presentation request response (HTTP ${response.status})`,
+        { response: responseBody || {} },
         response.status,
-        durationMs
+        durationMs,
+        { format: params.format, callback_url: params.callbackUrl },
+        responseBody || {}
       );
 
-      if (!response.ok) {
-        throw new Error(`Inji Verify returned HTTP status ${response.status}`);
+      if (!response.ok || !responseBody) {
+        throw new Error(
+          `Inji Verify presentation request returned HTTP ${response.status}${
+            responseBody ? `: ${JSON.stringify(responseBody)}` : ''
+          }`
+        );
       }
 
       return {
@@ -70,60 +80,157 @@ export class InjiVerifyAdapter extends BaseAdapter implements IVerifierAdapter {
       throw Object.assign(new Error(`Inji Verify presentation request failed: ${errorMsg}`), {
         isAuthoritativeFailure: false,
       });
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
   public async evaluateAuthoritativeResult(
     params: EvaluateResultParams
   ): Promise<AuthoritativeVerificationEvidence> {
-    const startTime = Date.now();
     const endpoint = `${this.baseUrl}/v1/verify`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.stageTimeoutMs || 30000);
 
     try {
-      // Inji Verify evaluates cryptographic proof and revocation
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          vp_token: params.vpToken,
-          presentation_submission: params.presentationSubmission,
-          nonce: params.nonce,
-        }),
-      });
-
-      const raw = (await response.json()) as Record<string, unknown>;
-      const isOk = response.ok;
-      const statusStr = String(raw.verificationStatus || raw.status || (isOk ? 'VALID' : 'INVALID')).toUpperCase();
-
-      let overallStatus: AuthoritativeVerificationEvidence['overallStatus'] = 'VALID';
-      if (statusStr.includes('EXPIRED')) {
-        overallStatus = 'EXPIRED';
-      } else if (statusStr.includes('REVOKED')) {
-        overallStatus = 'REVOKED';
-      } else if (statusStr.includes('UNTRUSTED') || statusStr.includes('UNKNOWN_ISSUER')) {
-        overallStatus = 'UNTRUSTED_ISSUER';
-      } else if (!isOk || statusStr.includes('INVALID') || statusStr.includes('FAILED')) {
-        overallStatus = 'INVALID';
+      let response: Response;
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            vp_token: params.vpToken,
+            presentation_submission: params.presentationSubmission,
+            nonce: params.nonce,
+          }),
+          signal: controller.signal,
+        });
+      } catch (netErr: unknown) {
+        const msg = netErr instanceof Error ? netErr.message : String(netErr);
+        throw Object.assign(new Error(`Inji Verify transport failure: ${msg}`), {
+          isAuthoritativeFailure: false,
+        });
       }
+
+      // 5xx status codes indicate service/infrastructure errors, not authoritative rejection
+      if (response.status >= 500) {
+        throw Object.assign(
+          new Error(`Inji Verify service unavailable or failed: HTTP ${response.status}`),
+          { isAuthoritativeFailure: false }
+        );
+      }
+
+      let raw: Record<string, unknown>;
+      try {
+        const text = await response.text();
+        raw = JSON.parse(text);
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+          throw new Error('Response is not a valid JSON object');
+        }
+      } catch (parseErr) {
+        throw Object.assign(
+          new Error(
+            `Inji Verify returned unparseable body: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+          ),
+          { isAuthoritativeFailure: false }
+        );
+      }
+
+      // Schema verification: never default missing status to VALID
+      const rawStatus = raw.verificationStatus || raw.status || raw.verification_status;
+      if (!rawStatus || typeof rawStatus !== 'string') {
+        return {
+          verifiedAt: new Date().toISOString(),
+          verifierComponentId: this.id,
+          overallStatus: 'UNPARSEABLE',
+          isSignatureValid: false,
+          isExpired: false,
+          isRevoked: false,
+          isIssuerTrusted: false,
+          claimsValidated: {},
+          verifierRawResponse: raw,
+        };
+      }
+
+      const statusUpper = rawStatus.toUpperCase().trim();
+      let overallStatus: AuthoritativeVerificationEvidence['overallStatus'];
+
+      if (statusUpper === 'VALID' || statusUpper === 'SUCCESS' || statusUpper === 'PASSED') {
+        overallStatus = 'VALID';
+      } else if (statusUpper.includes('EXPIRED')) {
+        overallStatus = 'EXPIRED';
+      } else if (statusUpper.includes('REVOKED')) {
+        overallStatus = 'REVOKED';
+      } else if (statusUpper.includes('UNTRUSTED') || statusUpper.includes('UNKNOWN_ISSUER')) {
+        overallStatus = 'UNTRUSTED_ISSUER';
+      } else if (statusUpper === 'INVALID' || statusUpper === 'FAILED') {
+        overallStatus = 'INVALID';
+      } else {
+        overallStatus = 'UNPARSEABLE';
+      }
+
+      // Explicit field mapping without inferring signature/trust purely from overallStatus
+      const isSignatureValid =
+        typeof raw.isSignatureValid === 'boolean'
+          ? raw.isSignatureValid
+          : typeof raw.signatureValid === 'boolean'
+          ? raw.signatureValid
+          : overallStatus === 'VALID';
+
+      const isExpired =
+        typeof raw.isExpired === 'boolean'
+          ? raw.isExpired
+          : overallStatus === 'EXPIRED';
+
+      const isRevoked =
+        typeof raw.isRevoked === 'boolean'
+          ? raw.isRevoked
+          : overallStatus === 'REVOKED';
+
+      const isIssuerTrusted =
+        typeof raw.isIssuerTrusted === 'boolean'
+          ? raw.isIssuerTrusted
+          : typeof raw.issuerTrusted === 'boolean'
+          ? raw.issuerTrusted
+          : overallStatus === 'VALID';
+
+      const credentialType =
+        typeof raw.credentialType === 'string'
+          ? (raw.credentialType as string)
+          : typeof raw.type === 'string'
+          ? (raw.type as string)
+          : undefined;
+
+      const claimsValidated =
+        (raw.claims as Record<string, unknown>) ||
+        (raw.credentialSubject as Record<string, unknown>) ||
+        {};
 
       return {
         verifiedAt: new Date().toISOString(),
         verifierComponentId: this.id,
         overallStatus,
-        isSignatureValid: overallStatus === 'VALID',
-        isExpired: overallStatus === 'EXPIRED',
-        isRevoked: overallStatus === 'REVOKED',
-        isIssuerTrusted: overallStatus !== 'UNTRUSTED_ISSUER',
-        claimsValidated: (raw.claims as Record<string, unknown>) || {},
+        isSignatureValid,
+        isExpired,
+        isRevoked,
+        isIssuerTrusted,
+        credentialType,
+        claimsValidated,
         verifierRawResponse: raw,
       };
     } catch (err: unknown) {
+      if ((err as { isAuthoritativeFailure?: boolean }).isAuthoritativeFailure !== undefined) {
+        throw err;
+      }
       const errorMsg = err instanceof Error ? err.message : String(err);
       throw Object.assign(new Error(`Inji Verify authoritative evaluation error: ${errorMsg}`), {
         isAuthoritativeFailure: false,
       });
+    } finally {
+      clearTimeout(timeout);
     }
   }
 }

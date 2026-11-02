@@ -10,15 +10,25 @@ import { createCallbacksRouter } from './routes/verifier-callbacks.routes.js';
 import { FileTestRunRepository } from './storage/file-repo.js';
 import { TestOrchestrationEngine } from './engine/test-runner.js';
 
-export function createApp(): Express {
+import { ITestRunRepository } from './storage/repository.js';
+
+export function createApp(customRepo?: ITestRunRepository, customEngine?: TestOrchestrationEngine): Express {
   const app = express();
 
   // Cross-Origin Resource Sharing
   app.use(
     cors({
-      origin: '*', // Allows local React Vite dev server
+      origin: (origin, callback) => {
+        // Allow requests with no origin (like curl, Postman, server-to-server, or mobile requests)
+        if (!origin) return callback(null, true);
+        if (config.corsOrigins.includes('*') || config.corsOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error(`Origin ${origin} not allowed by CORS`));
+      },
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+      credentials: true,
     })
   );
 
@@ -29,9 +39,9 @@ export function createApp(): Express {
   // Request Logging
   app.use(requestLogger);
 
-  // Dependencies: File-backed persistence for test runs history
-  const repository = new FileTestRunRepository();
-  const engine = new TestOrchestrationEngine(repository);
+  // Dependencies: File-backed persistence for test runs history or custom repository
+  const repository = customRepo || new FileTestRunRepository();
+  const engine = customEngine || new TestOrchestrationEngine(repository);
 
   // Health check endpoint
   app.get('/health', (_req, res) => {

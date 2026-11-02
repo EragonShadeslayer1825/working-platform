@@ -1,9 +1,6 @@
-version: '3.8'
-
 # ==============================================================================
 # MOSIP Decode Hackathon — Problem 02: Inji Interoperability Playground
 # Local Docker Compose Environment
-# Architect: Arnav
 # ==============================================================================
 
 networks:
@@ -40,7 +37,20 @@ services:
       retries: 5
 
   # ----------------------------------------------------------------------------
-  # 2. Inji Certify (Credential Issuer - OpenID4VCI)
+  # 2. Mock eSignet Service (Identity provider for Inji Certify in local stack)
+  # ----------------------------------------------------------------------------
+  mock-esignet:
+    image: node:22-alpine
+    container_name: mock-esignet
+    command: node -e 'require("http").createServer((req,res)=>{res.writeHead(200,{"Content-Type":"application/json"});res.end(JSON.stringify({status:"UP",keys:[]}))}).listen(8088,()=>console.log("Mock eSignet listening on 8088"))'
+    ports:
+      - "8088:8088"
+    networks:
+      - inji-net
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # 3. Inji Certify (Credential Issuer - OpenID4VCI)
   # ----------------------------------------------------------------------------
   inji-certify:
     image: mosipid/inji-certify:0.10.0
@@ -48,6 +58,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mock-esignet:
+        condition: service_started
     environment:
       SERVER_PORT: 8080
       SERVER_SERVLET_CONTEXT_PATH: /certify
@@ -63,7 +75,7 @@ services:
     restart: unless-stopped
 
   # ----------------------------------------------------------------------------
-  # 3. Mimoto (Inji Web Wallet BFF)
+  # 4. Mimoto (Inji Web Wallet BFF)
   # ----------------------------------------------------------------------------
   mimoto:
     image: mosipid/mimoto:0.10.0
@@ -86,7 +98,7 @@ services:
     restart: unless-stopped
 
   # ----------------------------------------------------------------------------
-  # 4. Inji Verify (Verifier Relying Party - OpenID4VP)
+  # 5. Inji Verify (Verifier Relying Party - OpenID4VP)
   # ----------------------------------------------------------------------------
   inji-verify:
     image: mosipid/inji-verify:0.10.0
@@ -109,7 +121,7 @@ services:
     restart: unless-stopped
 
   # ----------------------------------------------------------------------------
-  # 5. Playground Backend Orchestrator (Express / TypeScript)
+  # 6. Playground Backend Orchestrator (Express / TypeScript)
   # ----------------------------------------------------------------------------
   playground-backend:
     build:
@@ -118,8 +130,9 @@ services:
     container_name: inji-playground-backend
     environment:
       PORT: 4000
-      NODE_ENV: development
-      CORS_ORIGIN: http://localhost:3000,http://localhost:5173
+      NODE_ENV: production
+      CORS_ORIGIN: http://localhost:3000
+      CALLBACK_BASE_URL: http://playground-backend:4000
       INJI_CERTIFY_BASE_URL: http://inji-certify:8080/certify
       MIMOTO_WALLET_BASE_URL: http://mimoto:8081/mimoto
       INJI_VERIFY_BASE_URL: http://inji-verify:8082/verify
@@ -129,16 +142,24 @@ services:
       - "4000:4000"
     networks:
       - inji-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   # ----------------------------------------------------------------------------
-  # 6. Playground Frontend UI (Next.js / React)
+  # 7. Playground Frontend UI (Next.js / React)
   # ----------------------------------------------------------------------------
   playground-frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: inji-playground-frontend
+    depends_on:
+      playground-backend:
+        condition: service_healthy
     environment:
       NEXT_PUBLIC_PLAYGROUND_API_URL: http://localhost:4000
       PORT: 3000
@@ -146,4 +167,9 @@ services:
       - "3000:3000"
     networks:
       - inji-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped

@@ -6,7 +6,7 @@ A test orchestration platform for exercising Verifiable Credential issuance, wal
 
 The backend coordinates issuer, wallet, and verifier integrations, captures OpenID4VCI and OpenID4VP protocol events, normalizes payloads, evaluates authoritative cryptographic outcomes, and generates evidence-backed reports.
 
-An HTTP 200 response or successful wallet redirect alone is never considered a successful verification.
+**Core Architectural Invariant**: An HTTP 200 response, wallet redirect, or presentation submission receipt alone is **never** considered a successful verification. Authoritative cryptographic validation evidence is mandatory for a `PASS` verdict.
 
 ---
 
@@ -15,12 +15,14 @@ An HTTP 200 response or successful wallet redirect alone is never considered a s
 Deliver a repeatable end-to-end interoperability test:
 
 1. Issue a credential using Inji Certify through OpenID4VCI.
-2. Store and hold the credential in an Inji wallet.
-3. Present the credential to Inji Verify using OpenID4VP.
-4. Retrieve the authoritative verification result.
+2. Store and hold that exact credential in an Inji wallet (or simulated holder).
+3. Present the stored credential to Inji Verify using OpenID4VP.
+4. Retrieve and cryptographically scrutinize the authoritative verification result.
 5. Display diagnostics, protocol events, and a sanitized execution timeline.
 
-The project targets at least two credential formats. The first planned format is W3C VC 1.1 JSON-LD, subject to compatibility checks with the selected issuer, wallet, and verifier versions.
+The project targets two primary credential formats:
+- **Format 1**: W3C VC 1.1 JSON-LD (`w3c_vc_jsonld`) — Primary baseline target
+- **Format 2**: IETF SD-JWT VC (`sd_jwt_vc`) — Secondary profile target
 
 ---
 
@@ -28,8 +30,8 @@ The project targets at least two credential formats. The first planned format is
 
 ```mermaid
 flowchart TD
-    UI["Playground UI (React + Vite)"]
-    BFF["Playground Orchestrator (Express + TypeScript)"]
+    UI["Playground UI (Next.js 16 + React 19)"]
+    BFF["Playground Orchestrator (Express + TypeScript :4000)"]
 
     UI <-->|"REST APIs / Polling"| BFF
 
@@ -38,317 +40,195 @@ flowchart TD
         TR --> CR["Component Registry & 3D Matrix"]
         TR --> EV["Authoritative Verdict Evaluator"]
         TR --> EB["Sanitized Event Bus"]
-        TR --> ST[("Test Run History")]
+        TR --> ST[("Test Run History Repository")]
     end
 
     subgraph Adapters["Adapter Layer"]
-        TR --> IA["Issuer Adapter"]
-        TR --> WA["Wallet Adapter"]
-        TR --> VA["Verifier Adapter"]
+        TR --> IA["Issuer Adapter (IIssuerAdapter)"]
+        TR --> WA["Wallet Adapter (IWalletAdapter)"]
+        TR --> VA["Verifier Adapter (IVerifierAdapter)"]
     end
 
-    IA --> IC["Inji Certify / Mock VCI"]
-    WA --> IW["Inji Web Mimoto / Simulated Wallet"]
-    VA --> IV["Inji Verify / Mock VP"]
+    IA --> IC["Inji Certify (OpenID4VCI) / Mock Issuer"]
+    WA --> IW["Inji Web (Mimoto BFF) / Simulated Wallet / Inji Mobile"]
+    VA --> IV["Inji Verify (OpenID4VP) / Mock Verifier"]
 ```
 
 ### Key Engineering Principles
 
-1. **Authoritative Evidence vs Transport Success:** HTTP 200 confirms network delivery, not successful verification. A PASS outcome requires authoritative cryptographic validation evidence.
-
-2. **Failure vs Inconclusive Taxonomy:** Network timeouts, missing callback payloads, and unconfigured endpoints must not be incorrectly classified as interoperability failures.
-
-3. **Automated Sanitization:** The event pipeline masks Bearer tokens, private keys, client assertions, and sensitive identity attributes before storing or displaying protocol events.
-
-4. **Clean Adapter Abstraction:** New issuers, wallets, and verifiers can be integrated through `IIssuerAdapter`, `IWalletAdapter`, and `IVerifierAdapter`.
-
-5. **Real Wallet Consent:** The orchestration engine must not fabricate issuer/verifier responses or bypass user consent in the wallet flow.
-
----
-
-## 3. Team and Responsibilities
-
-| Team Member | Responsibility |
-|---|---|
-| Arnav | Architecture, technical decisions, protocol design, acceptance criteria, and integration review |
-| Dhyan | Backend orchestration engine, Express APIs, run lifecycle, service adapters, event capture, and verification results |
-| Namya | React/TypeScript frontend, selectors, run controls, protocol timeline, and result display |
-| Manay | Integration testing, setup documentation, compatibility matrix, and quality assurance |
-
-### Collaboration Guidelines
-
-- Work on separate branches.
-- Open pull requests before merging into `main`.
-- Coordinate before changing shared API contracts.
-- Keep the main branch runnable.
-- Document integration decisions and known limitations.
+1. **Authoritative Evidence vs Transport Success:** HTTP 200 confirms network transport, not credential validity. A `PASS` outcome requires:
+   - Verifier `overallStatus === 'VALID'`
+   - Cryptographic signature valid (`isSignatureValid === true`)
+   - Unexpired credential (`isExpired === false`)
+   - Revocation status clear (`isRevoked === false`)
+   - Trusted issuer authority (`isIssuerTrusted === true`)
+2. **Failure vs Inconclusive Taxonomy:** Network timeouts, missing callback payloads, unreachable services, and unparseable responses are strictly classified as `INCONCLUSIVE` (infrastructure/environmental), never conflated with authoritative credential rejection (`FAILED`).
+3. **Exact Credential Data Flow:** The wallet adapter receives the exact credential issued in Stage 2, persists it, and constructs presentations directly from that stored credential. Mock tampering (corrupted signatures, forced expiration) is applied directly to the stored credential.
+4. **Automated Sanitization:** The event bus recursively masks Bearer tokens, private keys (PEM/JWK), client assertions, OTPs, PINs, passwords, and sensitive identity attributes (`fullName`, `dob`, `national_id`, `address`) before storing or returning events.
+5. **No Fabricated Evidence:** Credential types, verification outcomes, and HTTP statuses are derived strictly from observed protocol data. Missing statuses remain undefined; unobserved types are never defaulted.
 
 ---
 
-## 4. Technology Stack
+## 3. Technology Stack
 
 ### Backend
-- Node.js 20+
-- TypeScript
-- Express.js
-- REST APIs
-- npm
+- **Runtime**: Node.js 22.x / 24.x
+- **Framework**: Express.js 4.21 (ESM)
+- **Language**: TypeScript 5.7
+- **Validation**: Zod 3.23 (runtime schema enforcement)
+- **Testing**: Node.js Native Test Runner with `tsx` ESM loader
 
 ### Frontend
-- React
-- TypeScript
-- Vite
+- **Framework**: Next.js 16.4 (Turbopack, App Router)
+- **Library**: React 19
+- **Icons**: Lucide React
+- **Styles**: Modern CSS design system with HSL tokens, dark mode, and micro-animations
 
-### Interoperability Standards
-- OpenID4VCI — Credential Issuance
-- OpenID4VP — Verifiable Presentation
-- W3C Verifiable Credentials
-
-### Inji Components
-- Inji Certify — Issuer
-- Inji Web / Mimoto — Wallet
-- Inji Verify — Verifier
+### Protocols & Standards
+- **Issuance**: OpenID4VCI (Draft 13)
+- **Presentation**: OpenID4VP (Draft 21)
+- **Data Models**: W3C Verifiable Credentials 1.1 / 2.0 (JSON-LD), IETF SD-JWT VC
 
 ---
 
-## 5. Backend API
+## 4. Repository Structure
 
-The backend exposes APIs for the Playground Web Application. These are playground-owned APIs, not Inji's internal endpoints.
-
-### Component Registry
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/api/v1/registry/components` | Retrieve registered issuers, wallets, verifiers, and credential formats |
-| GET | `/api/v1/registry/matrix` | Retrieve compatibility information for component combinations |
-
-Compatibility statuses:
-
-- `SUPPORTED`
-- `PENDING_INTEGRATION`
-- `UNSUPPORTED`
-
-### Test Runs
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| POST | `/api/v1/runs` | Launch an interoperability test |
-| GET | `/api/v1/runs` | Retrieve historical test runs |
-| GET | `/api/v1/runs/:id` | Retrieve test run details and verification report |
-| GET | `/api/v1/runs/:id/events` | Retrieve sanitized protocol events |
-
-Example request:
-
-```bash
-curl -X POST http://localhost:4000/api/v1/runs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "issuerId": "mock-openid4vci",
-    "walletId": "simulated-wallet",
-    "verifierId": "mock-openid4vp",
-    "format": "w3c_vc_jsonld"
-  }'
+```
+working-platform/
+├── app/                        # Next.js 16 Frontend App Router
+│   ├── globals.css             # Design system tokens and styles
+│   ├── layout.tsx              # Root HTML layout and metadata
+│   └── page.tsx                # Playground interactive dashboard
+├── lib/
+│   └── playground-api.ts       # Typed API client for playground backend
+├── src/                        # Backend Orchestrator Source Code
+│   ├── index.ts                # Server entry point (:4000)
+│   ├── app.ts                  # Express application factory with CORS
+│   ├── config/env.ts           # Zod-validated environment configuration
+│   ├── types/                  # Domain models, adapter interfaces, API schemas
+│   ├── engine/                 # State machine, test runner, evaluator, event bus
+│   ├── registry/               # Component registry & 3D compatibility matrix
+│   ├── adapters/               # Inji Certify, Inji Web, Inji Verify, and Mock adapters
+│   ├── routes/                 # Dual API routes: /api/runs and /api/v1/runs
+│   └── storage/                # File-backed & in-memory test run repositories
+├── tests/                      # Automated Test Suite (83 test cases)
+│   ├── orchestrator.test.ts    # Core state machine and lifecycle tests
+│   ├── wallet-data-flow.test.ts# Exact credential storage & presentation flow tests
+│   └── integration/            # API, Evaluator, Sanitization, and Callback tests
+├── docker-compose.yml          # Multi-container deployment configuration
+├── Dockerfile.backend          # Multi-stage production Dockerfile for backend
+├── Dockerfile.frontend         # Multi-stage production Dockerfile for Next.js
+└── package.json                # Project dependencies and npm scripts
 ```
 
-### Verifier Webhooks
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| POST | `/api/v1/callbacks/verifier/:runId` | Receive verification completion results |
-
-### Playground UI & Orchestration Integration Contract (Approved & Implemented)
-
-The backend exposes a harmonized dual-route structure designed by Arnav (see `ARCHITECTURE_DECISION_RECORDS.md` - ADR-002 and `API_Contract.md`):
-
-1. **Frontend Contract (`/api/runs`)**:
-   - `POST /api/runs`: Launch test run from UI with normalized module and format selections.
-   - `GET /api/runs`: Retrieve historical test runs formatted for UI tables.
-   - `GET /api/runs/:runId`: Retrieve run details, verification report, and sanitized protocol timeline.
-   - `POST /api/runs/:runId/issuance/start`: Handoff confirmation for credential issuance.
-   - `POST /api/runs/:runId/presentation/start`: Handoff confirmation for presentation.
-
-2. **Core Orchestration Contract (`/api/v1/runs`)**:
-   - `POST /api/v1/runs`: Headless automated pipeline execution.
-   - `GET /api/v1/runs/:id`: Domain test run status and stage state machines.
-   - `GET /api/v1/runs/:id/events`: Protocol inspector event log.
-   - `POST /api/v1/callbacks/verifier/:runId`: Webhook receiver for Inji Verify callback payloads.
-
-### Event Data
-
-Each protocol event should capture:
-
-- Run ID
-- Timestamp
-- Protocol step
-- Actor and direction
-- Endpoint or operation
-- Sanitized request/response
-- HTTP status
-- Error details
-
-Sensitive tokens, OTPs, private keys, and personal credential data must be redacted.
-
 ---
 
-## 6. Verification Outcomes
-
-The system distinguishes transport-level success from actual credential verification.
-
-Suggested normalized outcomes:
-
-| Status | Meaning |
-|---|---|
-| PASS | Authoritative verification succeeded |
-| INVALID | Credential or presentation was rejected |
-| EXPIRED | Credential or request has expired |
-| PENDING | Verification is still processing |
-| ERROR | Technical or integration error |
-| INCONCLUSIVE | Insufficient evidence to determine the outcome |
-
-A successful HTTP request, wallet redirect, VP receipt, or transaction ID is not sufficient to declare PASS.
-
-The backend must retrieve and evaluate the matching authoritative verifier result.
-
----
-
-## 7. Quick Start
+## 5. Quick Start
 
 ### Prerequisites
-
-- Node.js 20+ (Node.js 22 or 24 recommended)
+- Node.js 22.x or 24.x
 - npm 10+
-- Git
+- Docker & Docker Compose (optional, for containerized stack)
 
-### Installation
-
+### 1. Installation
+Run from the repository root:
 ```bash
-# Navigate to the backend directory
-cd inji-interop-backend
-
-# Install dependencies
-npm install
-
-# Build TypeScript
-npm run build
+npm ci
 ```
 
-### Run Automated Tests
-
-```bash
-npm test
-```
-
-The existing test suite covers five areas:
-
-1. Component registry.
-2. Token sanitization.
-3. Successful baseline end-to-end flow.
-4. Corrupted signature failure.
-5. Unreachable service inconclusive handling.
-
-### Start the Server
-
-Development mode:
-
-```bash
-npm run dev
-```
-
-Production mode:
-
-```bash
-npm start
-```
-
-The default server port is `4000`.
-
----
-
-## 8. Environment Configuration
-
-Create your environment file using:
-
+### 2. Environment Configuration
+Copy the example environment file:
 ```bash
 cp .env.example .env
 ```
 
-Example configuration:
-
+Key environment variables:
 ```env
 PORT=4000
 NODE_ENV=development
-CORS_ORIGIN=http://localhost:5173,http://localhost:3000
-
-# Inji services
+CORS_ORIGIN=http://localhost:3000,http://localhost:5173
+CALLBACK_BASE_URL=http://localhost:4000
 INJI_CERTIFY_BASE_URL=http://localhost:8080/certify
 MIMOTO_WALLET_BASE_URL=http://localhost:8081/mimoto
 INJI_VERIFY_BASE_URL=http://localhost:8082/verify
-
-# Timeouts
 STAGE_TIMEOUT_MS=30000
 RUN_TIMEOUT_MS=120000
+NEXT_PUBLIC_PLAYGROUND_API_URL=http://localhost:4000
 ```
 
-Update service URLs according to the actual deployed Inji versions and their documented configurations.
+### 3. Build Both Backend and Frontend
+```bash
+npm run build:backend   # Compiles Express server (tsc -p tsconfig.server.json)
+npm run build           # Compiles Next.js frontend with strict TypeScript enforcement
+```
 
-Never commit `.env` files or credentials to GitHub.
+### 4. Run the Full Automated Test Suite
+```bash
+npm test
+```
+Executes all 83 unit and integration tests across orchestrator lifecycle, wallet data flow, verifier callbacks, sanitization policies, and evaluator branches.
 
----
+### 5. Start the Services Locally
+In terminal 1 (Backend Orchestrator on `:4000`):
+```bash
+npm run dev:backend
+```
 
-## 9. Integration Plan
-
-### Four-Day Development Plan
-
-| Day | Objective |
-|---|---|
-| Day 1 | Confirm access, versions, environment, credential format, and API contracts |
-| Day 2 | Connect backend orchestration and frontend; capture sanitized protocol events |
-| Day 3 | Complete OpenID4VP integration and retrieve authoritative verification results |
-| Day 4 | Attempt second credential format, finalize compatibility report, and rehearse demo |
-
-### Integration Guidelines
-
-- Pin the exact issuer, wallet, and verifier versions.
-- Use official API documentation and OpenAPI specifications.
-- Confirm authentication, request formats, response fields, and service URLs.
-- Validate credential issuance before implementing the complete flow.
-- Confirm the exact Inji Verify result-retrieval API before implementing its adapter.
-- Add a second credential format only after the first complete flow works.
-- Record compatibility blockers instead of claiming untested support.
+In terminal 2 (Next.js Frontend on `:3000`):
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 10. Definition of Done
+## 6. Docker Deployment
 
-The project is considered complete when:
+Launch the full stack using Docker Compose:
+```bash
+docker compose up --build
+```
 
-- A repeatable issue → hold → present → verify flow works with the selected real Inji components.
-- The system records module versions and credential formats.
-- Protocol exchanges and errors are captured with sensitive information redacted.
-- The authoritative verifier response is available in the test report.
-- PASS, INVALID, EXPIRED, PENDING, and ERROR are distinguished appropriately.
-- A second credential format is tested or its compatibility blocker is documented.
-- Another teammate can reproduce the setup and demo using the documentation.
-
----
-
-## 11. Official References
-
-### Inji Projects
-
-- [Inji Certify Repository](https://github.com/inji/inji-certify)
-- [Inji Certify Local Setup](https://docs.inji.io/inji-certify/build-and-deploy/local-setup)
-- [Inji Web Repository](https://github.com/inji/inji-web)
-- [Inji Web Local Setup](https://docs.inji.io/inji-wallet/inji-web/build-and-deploy/local-setup)
-- [Inji Mobile Wallet Guide](https://docs.inji.io/inji-wallet/inji-mobile/functional-overview/end-user-guide)
-- [Inji Verify Repository](https://github.com/inji/inji-verify)
-- [Inji Verify Local Setup](https://docs.inji.io/inji-verify/build-and-deploy/local-setup)
-- [OpenID4VP Integration Guide](https://docs.inji.io/inji-verify/technical-overview/integration-guides/openid4vp-vp-verification-integration-guide)
+Services started:
+- `inji-playground-backend` on port `4000` (Node 22 multi-stage production runner)
+- `inji-playground-frontend` on port `3000` (Next.js production container)
+- `mock-esignet` on port `8088` (Identity provider stub for local Inji Certify)
+- `postgres` on port `5432` (Shared database for Inji services)
+- `inji-certify` on port `8080` (MOSIP OpenID4VCI Issuer)
+- `mimoto-wallet` on port `8081` (Inji Web Wallet BFF)
+- `inji-verify` on port `8082` (MOSIP OpenID4VP Verifier)
 
 ---
 
-## 12. Project Status
+## 7. Mock vs Real Inji Operation
 
-**Current focus:** Backend orchestration engine and API integration for the Inji Interoperability Playground.
+### Mock Stack (Automated Baseline)
+- **Issuer**: `mock-issuer` (`mock-openid4vci`)
+- **Wallet**: `simulated-wallet`
+- **Verifier**: `mock-verifier` (`mock-openid4vp`)
+- **Characteristics**: Instant zero-touch execution, realistic W3C VC JSON-LD and SD-JWT VC signatures, reproducible test tampering (corrupted proof, expired tokens).
 
-The immediate objective is to establish a reliable end-to-end interoperability flow with authoritative verification evidence, followed by additional credential formats and broader component compatibility testing.
+### Real Inji Stack
+- **Issuer**: `inji-certify` (`mosipid/inji-certify:0.10.0`)
+- **Wallet**: `inji-web` (`mosipid/mimoto:0.10.0`) or `inji-mobile`
+- **Verifier**: `inji-verify` (`mosipid/inji-verify:0.10.0`)
+- **Requirements**: Requires eSignet/Keycloak OAuth identity provider and PostgreSQL datastore. If live services are unreachable, the orchestrator reports `INCONCLUSIVE` (e.g. `ISSUER_OFFLINE`) rather than fabricating a verdict.
+
+---
+
+## 8. Verification Outcomes and Semantics
+
+| Verdict | Meaning | Mandatory Conditions |
+|---|---|---|
+| `PASSED` | Authoritative verification succeeded | `overallStatus === 'VALID'` AND `isSignatureValid === true` AND `isExpired === false` AND `isRevoked === false` AND `isIssuerTrusted === true` |
+| `FAILED` | Authoritative credential rejection | Verifier cryptographically rejected signature, expired date, revoked status, or untrusted issuer |
+| `INCONCLUSIVE` | Technical inability to determine result | Network timeout, service offline, missing callback payload, or unparseable verifier response |
+| `UNTESTED` | Stage not reached | Flow aborted prior to verifier stage |
+
+---
+
+## 9. Known Limitations and Status
+
+1. **Live Inji Stack Verification**: The playground includes production-ready adapters for Inji Certify, Inji Web (Mimoto), and Inji Verify v0.10.0. In environments without deployed MOSIP identity infrastructure, live endpoints yield `INCONCLUSIVE` network timeouts. Compatibility status is marked `PENDING_INTEGRATION` / `NOT VERIFIED`.
+2. **mDoc / ISO 18013-5 Support**: Inji Verify v0.10.0 does not support `mso_mdoc`. Documented as an architectural blocker (`UNSUPPORTED`).
+3. **Mobile Wallet (Inji Mobile)**: Marked as `EXPERIMENTAL` / interactive handoff. Automated test suites use `simulated-wallet`.

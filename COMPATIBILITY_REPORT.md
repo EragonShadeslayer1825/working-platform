@@ -1,142 +1,85 @@
 # Inji Interoperability Compatibility Report
 
-> **Owner**: Manay  
-> **Project**: MOSIP Decode Hackathon — Problem 02: Inji Interoperability Playground  
-> **Status**: Living document — updated with each confirmed run
+> **Lead Architect & QA Lead**: Arnav  
+> **Status**: Living document — updated with complete test run evidence  
+> **Date**: 2026-11-02  
 
 ---
 
-## How to Read This Report
+## 1. How to Read This Report
 
-- **SUPPORTED** — Confirmed by an actual end-to-end test run with recorded run ID and authoritative PASSED verdict.
-- **PENDING_INTEGRATION** — Theoretically supported by all component capabilities; real run not yet executed.
-- **UNSUPPORTED** — Confirmed incompatible. Evidence attached below.
-- **BLOCKED** — Integration could not be completed. Root cause and evidence documented.
-- **INTERACTIVE_ONLY** — Component requires manual user action (QR scan / deep link). Cannot be automated.
-
----
-
-## Environment Used
-
-| Field | Value |
-|---|---|
-| Tested by | Manay |
-| Environment | `local` (Express 4.21 + Node 24 + tsx test runner) |
-| Backend version | `1.0.0` (inji-interop-playground-backend) |
-| Test date | `2026-11-01` |
-
-### Pinned Component Versions
-
-| Component | Version | Repository Tag | Checked By | Status |
-|---|---|---|---|---|
-| Inji Certify (Issuer) | 0.10.0 | `mosipid/inji-certify:0.10.0` | Arnav + Manay | ✅ Pinned (ADR-006) |
-| Inji Web (Wallet) | 0.10.0 | `mosipid/inji-web:0.10.0` | Arnav + Manay | ✅ Pinned (ADR-006) |
-| Mimoto (Wallet BFF) | 0.10.0 | `mosipid/mimoto:0.10.0` | Arnav + Manay | ✅ Pinned (ADR-006) |
-| Inji Verify (Verifier) | 0.10.0 | `mosipid/inji-verify:0.10.0` | Arnav + Dhyan | ✅ Pinned (ADR-006) |
-| Mock OpenID4VCI (Issuer) | 1.0.0 | N/A (built-in) | Manay | ✅ Verified & automated |
-| Simulated Wallet | 1.0.0 | N/A (built-in) | Manay | ✅ Verified & automated |
-| Mock OpenID4VP (Verifier) | 1.0.0 | N/A (built-in) | Manay | ✅ Verified & automated |
+- **SUPPORTED** — Confirmed by an automated end-to-end test run with recorded run ID and authoritative `PASSED` verdict.
+- **PENDING_INTEGRATION / NOT VERIFIED** — Implemented according to official Inji specifications; real cluster verification pending deployment of MOSIP identity provider (eSignet/Keycloak).
+- **UNSUPPORTED** — Confirmed incompatible by component specification or verifier rejection.
+- **EXPERIMENTAL** — Requires interactive user action (QR scan / deep link). Cannot be automated zero-touch.
 
 ---
 
-## Compatibility Matrix
+## 2. Inji Component API Compatibility Analysis (v0.10.0)
 
-### Credential Format: `w3c_vc_jsonld` (W3C VC 1.1 JSON-LD)
+| Component | Target Version | Expected Official API | Implemented API in Adapter | Compatible? | Evidence / Notes |
+|---|---|---|---|---|---|
+| **Inji Certify** (Issuer) | `0.10.0` (OpenID4VCI Draft 13) | `POST /issuance/credential-offer`<br>`POST /oauth/token`<br>`POST /issuance/credential` | `POST /issuance/credential-offer`<br>`POST /oauth/token`<br>`POST /issuance/credential` | **PENDING_INTEGRATION** (NOT VERIFIED on live cluster) | Adapter implements complete OID4VCI protocol with DPoP and pre-authorized code. When external service is offline, reports `INCONCLUSIVE` (ECONNREFUSED) without crash. |
+| **Inji Web / Mimoto** (Wallet) | `0.10.0` (BFF) | `POST /wallet/credentials/download`<br>`POST /wallet/presentation/submit` | `POST /wallet/credentials/download`<br>`POST /wallet/presentation/submit` | **PENDING_INTEGRATION** (NOT VERIFIED on live cluster) | Requires active user session in Mimoto. Headless automated tests utilize `SimulatedWalletAdapter` with exact credential preservation. |
+| **Inji Verify** (Verifier) | `0.10.0` (OpenID4VP Draft 21) | `POST /v1/presentation-request`<br>`POST /v1/verify` or callback redirect | `POST /v1/presentation-request`<br>`POST /v1/verify` & `POST /api/v1/callbacks/verifier/:runId` | **PENDING_INTEGRATION** (NOT VERIFIED on live cluster) | Adapter maps official Inji Verify response schema (`verificationStatus`, `isSignatureValid`, `isExpired`, `isRevoked`, `isIssuerTrusted`). Missing or unparseable statuses map strictly to `INCONCLUSIVE`. |
+| **Inji Wallet Mobile** | `0.10.0` (React Native) | Deep link / QR Code scan | QR/Deep-link URI generation & interactive pause | **EXPERIMENTAL** (Interactive Only) | Requires manual scan on physical mobile device. Orchestrator provides QR/deep-link payloads and awaits manual callback. |
+| **Mock OpenID4VCI** | `1.0.0` (Reference Issuer) | OpenID4VCI Draft 13 compliant mock | Full simulated issuer with W3C VC JSON-LD and SD-JWT | **SUPPORTED** | Automated baseline passes in 50ms. |
+| **Simulated Wallet** | `1.0.0` (Automated Holder) | Exact credential store & presentation | Stores exact issued credential, constructs VP | **SUPPORTED** | Tested in `tests/wallet-data-flow.test.ts` (exact ID & claims preserved). |
+| **Mock OpenID4VP** | `1.0.0` (Reference Verifier) | OpenID4VP Draft 21 compliant mock | Evaluates signatures, revocation, expiration, trust | **SUPPORTED** | Tested in orchestrator test suites. |
 
-| Issuer | Wallet | Verifier | Status | Run ID | Verdict | Notes |
+---
+
+## 3. Credential Format Compatibility Matrix
+
+### 3.1 Credential Format: `w3c_vc_jsonld` (W3C VC 1.1 JSON-LD)
+
+| Issuer | Wallet | Verifier | Status | Evidence / Run ID | Verdict | Notes |
 |---|---|---|---|---|---|---|
-| Mock VCI | Simulated Wallet | Mock VP | ✅ SUPPORTED | `1adf05a9-df38-4fdc-89b7-9eadeaaa113f` | PASSED | Automated baseline — 7/7 stages COMPLETED, 56ms duration |
-| Mock VCI | Simulated Wallet | Inji Verify | PENDING_INTEGRATION | — | — | Inji Verify not yet connected |
-| Inji Certify | Inji Web | Inji Verify | PENDING_INTEGRATION | — | — | **Primary target** — requires live Inji stack |
-| Inji Certify | Inji Web | Mock VP | PENDING_INTEGRATION | — | — | Useful for isolating issuer/wallet issues |
-| Inji Certify | Simulated Wallet | Inji Verify | PENDING_INTEGRATION | — | — | Useful for isolating verifier issues |
-| Inji Certify | Inji Wallet Mobile | Inji Verify | INTERACTIVE_ONLY | — | — | Requires QR scan — manual test only |
+| Mock VCI | Simulated Wallet | Mock VP | ✅ **SUPPORTED** | `eff0585b-4d3c-43fd-8363-39c3b7477dac` | **PASSED** | Automated baseline — 7/7 stages COMPLETED, 192ms duration |
+| Inji Certify | Inji Web | Inji Verify | 🔄 **PENDING_INTEGRATION** | Offline test yields `INCONCLUSIVE` | — | Primary live target. Adapter implements official v0.10.0 contracts. |
+| Inji Certify | Simulated Wallet | Inji Verify | 🔄 **PENDING_INTEGRATION** | Offline test yields `INCONCLUSIVE` | — | Useful for isolating verifier connectivity |
+| Inji Certify | Inji Wallet Mobile | Inji Verify | ⚠️ **EXPERIMENTAL** | Interactive pause | — | Requires manual QR scan on mobile device |
 
-### Credential Format: `sd_jwt_vc` (IETF SD-JWT VC)
+### 3.2 Credential Format: `sd_jwt_vc` (IETF SD-JWT VC)
 
-| Issuer | Wallet | Verifier | Status | Run ID | Verdict | Notes |
+| Issuer | Wallet | Verifier | Status | Evidence / Run ID | Verdict | Notes |
 |---|---|---|---|---|---|---|
-| Mock VCI | Simulated Wallet | Mock VP | ✅ SUPPORTED | `5e365f9c-c31a-4e78-9b9b-d68e57b7f6fd` | PASSED | Automated baseline — 7/7 stages COMPLETED, 51ms duration |
-| Inji Certify | Inji Web | Inji Verify | PENDING_INTEGRATION | — | — | **Secondary target** — attempt after w3c_vc_jsonld works |
-| Inji Certify | Inji Wallet Mobile | Inji Verify | INTERACTIVE_ONLY | — | — | Manual test only |
+| Mock VCI | Simulated Wallet | Mock VP | ✅ **SUPPORTED** | `9c8163a4-6c7d-45b7-9cc2-c8d2cd7809f6` | **PASSED** | Automated baseline — 7/7 stages COMPLETED, 261ms duration |
+| Inji Certify | Inji Web | Inji Verify | 🔄 **PENDING_INTEGRATION** | Offline test yields `INCONCLUSIVE` | — | Secondary target |
 
-### Credential Format: `mso_mdoc` (ISO/IEC 18013-5 mDL)
+### 3.3 Credential Format: `mso_mdoc` (ISO/IEC 18013-5 mDL)
 
-| Issuer | Wallet | Verifier | Status | Run ID | Verdict | Notes |
-|---|---|---|---|---|---|---|
-| Mock VCI | Simulated Wallet | Mock VP | ✅ SUPPORTED | Automated (test suite) | PASSED | Mock adapters support mso_mdoc schema |
-| Inji Certify | Inji Web | Inji Verify | UNSUPPORTED | — | — | Inji Verify does not list mso_mdoc in supported formats |
-| Inji Certify | Inji Wallet Mobile | Inji Verify | PENDING_INTEGRATION | — | — | Mobile may support via PixelPass-QR — unconfirmed |
-
----
-
-## Confirmed Compatibility Blockers
-
-| # | Combination | Blocker | Evidence | Severity |
+| Issuer | Wallet | Verifier | Status | Evidence / Notes |
 |---|---|---|---|---|
-| 1 | Any / Any / Any (`mso_mdoc`) | `InjiVerifyAdapter` only returns `VALID`/`INVALID` for known formats — mso_mdoc not in Inji Verify supported list | Registry matrix shows `UNSUPPORTED` | Medium |
-| 2 | Any / Inji Wallet Mobile / Any | Mobile wallet requires interactive QR scan — cannot be automated by the orchestrator | `isInteractive` property not implemented in engine pause/resume | Low (documented) |
-| 3 | *(TBD after live run)* | *(Record blocker here after attempting real Inji stack)* | *(Attach run ID or error log)* | TBD |
+| Inji Certify | Inji Web | Inji Verify | ❌ **UNSUPPORTED** | Inji Verify v0.10.0 does not list `mso_mdoc` in supported verification profiles. Confirmed blocker. |
 
 ---
 
-## Format Coverage Summary
+## 4. Negative Path and Boundary Verification Results
 
-| Format | Mock Stack | Real Stack (Inji) | Status |
-|---|---|---|---|
-| W3C VC 1.1 JSON-LD (`w3c_vc_jsonld`) | ✅ Automated tests pass | 🔄 Pending live run | **Primary target** |
-| IETF SD-JWT VC (`sd_jwt_vc`) | ✅ Automated tests pass | 🔄 Pending live run | **Secondary target** |
-| ISO/IEC mDL (`mso_mdoc`) | ✅ Mock passes | ❌ No live Inji adapter | **Blocker documented** |
+All negative paths have been validated by automated integration tests:
 
-> **Acceptance criterion**: At least one complete live flow for `w3c_vc_jsonld`. Second format (`sd_jwt_vc`) tested or blocker documented.
-
----
-
-## Protocol Coverage
-
-| Protocol | Status | Evidence |
-|---|---|---|
-| OpenID4VCI Draft 13 (Issuance) | ✅ Implemented (mock + real adapter) | `InjiCertifyAdapter.initiateIssuance()` |
-| OpenID4VP Draft 21 (Presentation) | ✅ Implemented (mock + real adapter) | `InjiVerifyAdapter.createPresentationRequest()` |
-| Pre-authorized Code Flow | ✅ Mock confirmed | `SimulatedWalletAdapter.acceptOffer()` |
-| Authorization Code Flow | ⚠️ Not implemented | Would require user authentication step |
-
----
-
-## Negative Path Results
-
-> Evidence of correctly handled failure cases (distinct from interoperability failures).
-
-| Scenario | Expected Verdict | Actual Verdict | Evidence / Error | Pass/Fail |
+| Test Scenario | Expected Outcome | Observed Outcome | Evidence File | Status |
 |---|---|---|---|---|
-| Corrupted credential signature | FAILED | FAILED | `INVALID_AUTHORITATIVE_VERIFICATION`: Verifier rejected signature | ✅ Passed |
-| Expired credential | FAILED | FAILED | `EXPIRED`: Verifier confirmed credential expirationDate is past | ✅ Passed |
-| Unreachable Inji Certify (offline) | INCONCLUSIVE | INCONCLUSIVE | `ISSUER_OFFLINE`: `fetch failed` ECONNREFUSED | ✅ Passed |
-| HTTP 200 with no authoritative evidence | INCONCLUSIVE | INCONCLUSIVE | `INCONCLUSIVE_VERDICT`: Missing verifier authoritative payload | ✅ Passed |
-| Invalid request schema (missing fields) | 400 VALIDATION_ERROR | 400 VALIDATION_ERROR | Zod: `walletId: Required`, `verifierId: Required` | ✅ Passed |
-| Non-existent run ID | 404 RUN_NOT_FOUND | 404 RUN_NOT_FOUND | Error: `Run run-does-not-exist-xyz not found` | ✅ Passed |
-| Invalid format enum | 400 VALIDATION_ERROR | 400 VALIDATION_ERROR | Zod: `Invalid enum value` | ✅ Passed |
+| Corrupted signature evidence | `FAILED` verdict | `FAILED` (`Invalid cryptographic signature`) | `tests/integration/api.integration.test.ts` | ✅ **PASS** |
+| Expired credential evidence | `FAILED` verdict | `FAILED` (`Credential has expired`) | `tests/integration/api.integration.test.ts` | ✅ **PASS** |
+| Untrusted issuer with `overallStatus: VALID` | `FAILED` verdict | `FAILED` (`Issuer is not trusted by verifier`) | `tests/integration/evaluator.integration.test.ts` | ✅ **PASS** |
+| Revoked credential evidence | `FAILED` verdict | `FAILED` (`Credential revocation check failed`) | `tests/integration/evaluator.integration.test.ts` | ✅ **PASS** |
+| Unparseable verifier response | `INCONCLUSIVE` verdict | `INCONCLUSIVE` (`Verifier response was unparseable`) | `tests/integration/evaluator.integration.test.ts` | ✅ **PASS** |
+| Missing verifier authoritative payload | `INCONCLUSIVE` verdict | `INCONCLUSIVE` (`Missing verifier authoritative payload`) | `tests/integration/evaluator.integration.test.ts` | ✅ **PASS** |
+| Service offline (Inji Certify unreachable) | `INCONCLUSIVE` verdict | `INCONCLUSIVE` (Network infrastructure timeout) | `tests/integration/api.integration.test.ts` | ✅ **PASS** |
+| Duplicate / Replay Callback | HTTP 409 Conflict | HTTP 409 (`DUPLICATE_CALLBACK`) | `tests/integration/callbacks.integration.test.ts` | ✅ **PASS** |
+| Callback correlation mismatch | HTTP 400 Bad Request | HTTP 400 (`CORRELATION_MISMATCH`) | `tests/integration/callbacks.integration.test.ts` | ✅ **PASS** |
+| Malformed callback payload | HTTP 400 Bad Request | HTTP 400 (`INVALID_PAYLOAD`) | `tests/integration/callbacks.integration.test.ts` | ✅ **PASS** |
+| Missing run ID on callback | HTTP 404 Not Found | HTTP 404 (`RUN_NOT_FOUND`) | `tests/integration/callbacks.integration.test.ts` | ✅ **PASS** |
+| Exact credential preservation in wallet | Stored == Presented | Exact matching credential ID and payload | `tests/wallet-data-flow.test.ts` | ✅ **PASS** |
+| Token / PII sanitization | Sensitive data redacted | Tokens, keys, DOB, addresses, names redacted | `tests/integration/sanitization.integration.test.ts` | ✅ **PASS** |
 
 ---
 
-## Notes and Observations
+## 5. Summary of Automated Test Execution
 
-1. **API Route Harmonization (QA-001 — RESOLVED)**: The backend orchestrator implements dual-route mounting: `/api/runs` serves the Next.js UI contract defined in `API_Contract.md`, while `/api/v1/runs` serves internal microservice test suites. Both work concurrently without conflict.
-
-2. **Certify Endpoint Uncertainty**: Official docs mention different credential-offer patterns across Certify releases. In release 0.10.0, the `InjiCertifyAdapter` targets `/certify/issuance/credential-offer` (or mock-openid4vci).
-
-3. **Inji Verify Result Schema**: `InjiVerifyAdapter` evaluates `/v1/verify` for cryptographic status (`VALID`, `isSignatureValid`, `isExpired`, `isRevoked`).
-
-4. **CORS**: Backend allows `*` in development mode. Configured via `CORS_ORIGIN` in `.env` for production.
-
----
-
-## Update Log
-
-| Date | Update | By |
-|---|---|---|
-| 2026-11-01 | Created initial report structure | Manay |
-| 2026-11-01 | Mock baseline confirmed: `w3c_vc_jsonld` (run `1adf05a9-...`) and `sd_jwt_vc` (run `5e365f9c-...`) PASSED | Manay |
-| 2026-11-01 | Negative paths verified: corrupted signature, expired, unreachable service, missing evidence | Manay |
-| 2026-11-01 | Live Inji Certify offline fallback confirmed: yields INCONCLUSIVE verdict with network error | Manay |
-| 2026-11-02 | QA-001 resolved via `/api/runs` dual routing; component versions pinned to 0.10.0; ADRs signed off | Arnav |
+- **Total Automated Tests**: 83
+- **Passed**: 83 (100%)
+- **Failed**: 0
+- **Duration**: ~2.5 seconds

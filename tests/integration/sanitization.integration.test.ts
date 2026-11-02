@@ -252,3 +252,46 @@ test('Sanitizer performs case-insensitive key matching', () => {
   assert.equal(result.ACCESS_TOKEN, REDACTED, 'Uppercase ACCESS_TOKEN should be redacted');
   assert.equal(result.Client_Secret, REDACTED, 'Mixed-case Client_Secret should be redacted');
 });
+
+test('Sanitizer redacts PII and identity attributes comprehensively', () => {
+  const input = {
+    fullName: 'Jane Doe',
+    firstName: 'Jane',
+    lastName: 'Doe',
+    dob: '1990-05-15',
+    dateOfBirth: '1990-05-15',
+    streetAddress: '123 Test St',
+    postalCode: '560001',
+    national_id: 'ID-999888',
+    otp: '987654',
+    pin: '4321',
+    dpop_proof: 'eyJhbGciOiJFUzI1Ni...',
+    vp_token: 'eyJhbGciOiJFUzI1Ni...',
+  };
+
+  const result = EventSanitizer.sanitize(input) as Record<string, unknown>;
+
+  assert.equal(result.fullName, REDACTED);
+  assert.equal(result.firstName, REDACTED);
+  assert.equal(result.lastName, REDACTED);
+  assert.equal(result.dob, REDACTED);
+  assert.equal(result.dateOfBirth, REDACTED);
+  assert.equal(result.streetAddress, REDACTED);
+  assert.equal(result.postalCode, REDACTED);
+  assert.equal(result.national_id, REDACTED);
+  assert.equal(result.otp, REDACTED);
+  assert.equal(result.pin, REDACTED);
+  assert.equal(result.dpop_proof, REDACTED);
+  assert.equal(result.vp_token, REDACTED);
+});
+
+test('Sanitizer redacts embedded EC/RSA private key strings', () => {
+  const input = {
+    debugMessage: 'Dumped key: -----BEGIN EC PRIVATE KEY-----\nMIGqAgEAAiEA...\n-----END EC PRIVATE KEY-----',
+    safeInfo: 'Version 1.0.0',
+  };
+
+  const result = EventSanitizer.sanitize(input) as Record<string, unknown>;
+  assert.equal(result.debugMessage, '[REDACTED_PRIVATE_KEY]');
+  assert.equal(result.safeInfo, 'Version 1.0.0');
+});

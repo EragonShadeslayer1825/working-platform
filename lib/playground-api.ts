@@ -1,6 +1,6 @@
 export type Environment = 'collab' | 'local'
 export type CredentialFormat = 'jsonld-vc-1.1' | 'sd-jwt-vc'
-export type VerificationState = 'NOT_STARTED' | 'PENDING' | 'PASS' | 'INVALID' | 'EXPIRED' | 'ERROR'
+export type VerificationState = 'NOT_STARTED' | 'PENDING' | 'PASS' | 'INVALID' | 'EXPIRED' | 'INCONCLUSIVE' | 'ERROR'
 
 export interface ModuleSelection { id: string; version: string }
 export interface CreateRunRequest {
